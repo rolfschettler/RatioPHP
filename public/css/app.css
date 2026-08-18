@@ -1,0 +1,241 @@
+/* ============================================================
+   app.css -- Layout-CSS
+   Bootstrap: fuer Komponenten (Buttons, Formulare, Grid)
+   Dieses CSS: nur fuer das Seiten-Layout-Geruest
+
+   Farbsystem:
+   Alle Farben werden ausschliesslich ueber die Variablen im :root
+   Block unten gesteuert -- fuer ein neues Kundentheme NUR diese
+   Variablen aendern, sonst nichts in diesem File oder in Views.
+   Siehe CLAUDE.md Abschnitt "Theming".
+   ============================================================ */
+
+:root {
+    --primary-color:       #3A7CC4;   /* Hauptfarbe -- Header, Buttons, Akzente */
+    --primary-color-dark:  #1F5A96;   /* Hover, Links, Labels, Icons auf weiss */
+    --primary-color-light: #CFE4F7;   /* Tabellenkoepfe, Badges, dezente Flaechen */
+    --on-primary:          #FFFFFF;   /* Text/Icons AUF farbigem Hintergrund (Buttons, Header) */
+    --text-color:          #0D2438;   /* Text auf weissem/hellem Hintergrund */
+    --border-color:        #D9E8F5;   /* Trennlinien, Tabellenrahmen */
+    --surface-muted:       #F2F8FD;   /* Toolbar-Hintergrund, Tabellenzeilen-Hover */
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+    height: 100%;
+    overflow: hidden;
+    font-family: system-ui, -apple-system, sans-serif;
+    font-size: 15px;
+    /* Kein Text markieren -- App-Charakter statt Dokument */
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+    /* Kein Pull-to-Refresh / Overscroll-Bounce */
+    overscroll-behavior: none;
+}
+
+/* ── Wrapper ── */
+.app-wrapper {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+}
+
+/* ================================================================
+   BUTTONS -- zentrale Klasse fuer alle primaeren Aktions-Buttons.
+   Ersetzt einzelne "style=background:...;color:..." Inline-Styles.
+   ================================================================ */
+.btn-app-primary {
+    background: var(--primary-color);
+    color: var(--on-primary);
+    border: none;
+}
+.btn-app-primary:hover,
+.btn-app-primary:focus {
+    background: var(--primary-color-dark);
+    color: var(--on-primary);
+}
+
+/* ================================================================
+   HEADER -- immer sichtbar
+   ================================================================ */
+.app-header { flex-shrink: 0; background: var(--primary-color); z-index: 1000; }
+.app-header .navbar-brand {
+    color: var(--on-primary); font-weight: 700; font-size: 1rem;
+    display: flex; align-items: center; gap: .5rem; text-decoration: none;
+}
+.app-header .nav-link           { color: var(--on-primary) !important; font-size: .9rem; }
+.app-header .navbar-toggler     { border-color: var(--on-primary); }
+.app-header .navbar-toggler-icon { filter: invert(1) brightness(2); }
+
+/* ================================================================
+   APP-ABOVE-TABLE
+   Alles zwischen Header und Tabelle in EINEM Block ohne Borders.
+   Verhindert Subpixel-Gaps die beim Scrollen als Lücke sichtbar werden.
+   ================================================================ */
+.app-above-table { flex-shrink: 0; background: #fff; }
+
+/* ================================================================
+   TOOLBAR (optional)
+   Nur einbinden wenn Filter oder Aktionen vorhanden.
+   ================================================================ */
+.toolbar-toggle {
+    display: none;
+    width: 100%;
+    background: var(--surface-muted);
+    border: none;
+    border-bottom: 1px solid var(--border-color);
+    padding: .4rem 1.25rem;
+    font-size: .85rem;
+    color: var(--primary-color-dark);
+    cursor: pointer;
+    align-items: center;
+    gap: .4rem;
+    flex-shrink: 0;
+}
+
+.app-toolbar {
+    background: var(--surface-muted);
+    padding: .6rem 1.25rem;
+}
+
+@media (max-width: 991.98px) {
+    .toolbar-toggle { display: flex; }
+    .app-toolbar    { display: none; }
+    .app-toolbar.open { display: block; }
+}
+
+.filter-label {
+    display: block;
+    font-size: .75rem;
+    color: var(--primary-color-dark);
+    font-weight: 600;
+    margin-bottom: .2rem;
+    white-space: nowrap;
+}
+
+/* ================================================================
+   PAGE-HEADER -- Seitentitel + Eintraege-Badge
+   ================================================================ */
+.app-page-header {
+    padding: .75rem 1.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .5rem;
+    flex-wrap: wrap;
+}
+
+/* ================================================================
+   MAIN -- NUR die Tabelle, padding: 0
+   Kein padding-top -- sonst Luecke beim sticky thead!
+   ================================================================ */
+.app-main {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-x: auto;
+    overflow-y: auto;
+    overscroll-behavior: none;
+    background: #fff;
+    padding: 0;
+}
+
+/* ================================================================
+   STANDARD-TABELLE (.app-table)
+   Immer diese Klasse -- kein Bootstrap table-striped.
+   Kein overflow-x Wrapper -- .app-main scrollt bereits.
+   ================================================================ */
+.app-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .85rem;
+}
+
+.app-table thead th {
+    background: var(--primary-color-light);
+    color: var(--text-color);
+    font-weight: 600;
+    padding: .55rem .8rem;
+    text-align: left;
+    border: 1px solid var(--primary-color);
+    border-top: none;          /* WICHTIG: kein border-top -- sonst Luecke beim Scrollen */
+    white-space: nowrap;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+}
+
+.app-table tbody td {
+    padding: .5rem .8rem;
+    border: 1px solid var(--border-color);
+    vertical-align: middle;
+    white-space: nowrap;
+    background: #fff;
+}
+
+.app-table tbody tr:hover td { background: var(--surface-muted); }
+
+/* Aktions-Spalte: IMMER erste Spalte */
+.app-table td.act { text-align: center; white-space: nowrap; width: 1%; }
+
+/* Gedaempfte Nebenwerte (ID, Kennziffer) */
+.app-table td.dim { color: #888; font-weight: 600; font-size: .8rem; }
+
+/* Status-Badge -- NUR fuer echte Status-Felder */
+.app-status {
+    display: inline-block;
+    padding: .2rem .55rem;
+    border-radius: 999px;
+    font-size: .73rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+/* ================================================================
+   PAGER (optional)
+   ================================================================ */
+.app-pager {
+    flex-shrink: 0;
+    background: #fff;
+    border-top: 1px solid var(--border-color);
+    padding: .45rem 1.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: .4rem;
+    flex-wrap: wrap;
+}
+
+.pager-btn {
+    border: 1px solid #dee2e6;
+    background: #fff;
+    color: var(--text-color);
+    padding: .25rem .55rem;
+    border-radius: .35rem;
+    font-size: .82rem;
+    cursor: pointer;
+    line-height: 1.4;
+}
+.pager-btn:hover    { background: #f8f9fa; }
+.pager-btn.active   { background: var(--primary-color); border-color: var(--primary-color); color: var(--on-primary); font-weight: 700; }
+.pager-btn:disabled { opacity: .4; cursor: default; }
+
+/* ================================================================
+   FOOTER -- immer sichtbar
+   ================================================================ */
+.app-footer {
+    flex-shrink: 0;
+    background: #fff;
+    border-top: 2px solid var(--primary-color-light);
+    color: var(--text-color);
+    padding: .45rem 1.25rem;
+    font-size: .8rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.app-footer a { color: var(--primary-color-dark); text-decoration: none; font-size: .8rem; }
+.app-footer a:hover { text-decoration: underline; }

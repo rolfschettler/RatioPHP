@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Harry's Handbuch — PHP Views mit Claude Code</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+    color: #1a1a2e;
+    background: #f5f7fa;
+  }
+
+  /* Layout */
+  .layout { display: flex; min-height: 100vh; }
+
+  nav {
+    width: 260px;
+    min-width: 260px;
+    background: #1a1a2e;
+    color: #c8d0e0;
+    padding: 0;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+  }
+
+  nav .nav-header {
+    padding: 24px 20px 16px;
+    border-bottom: 1px solid #2e3555;
+  }
+
+  nav .nav-header h1 {
+    font-size: 16px;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: 0.02em;
+  }
+
+  nav .nav-header p {
+    font-size: 12px;
+    color: #7080a0;
+    margin-top: 4px;
+  }
+
+  nav ul { list-style: none; padding: 12px 0; }
+
+  nav ul li a {
+    display: block;
+    padding: 7px 20px;
+    color: #9aaabb;
+    text-decoration: none;
+    font-size: 13px;
+    border-left: 3px solid transparent;
+    transition: all 0.15s;
+  }
+
+  nav ul li a:hover,
+  nav ul li a.active {
+    color: #fff;
+    background: #242d4a;
+    border-left-color: #4e9af1;
+  }
+
+  nav ul li.section-label {
+    padding: 14px 20px 4px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #4a5878;
+  }
+
+  main {
+    flex: 1;
+    padding: 40px 48px;
+    max-width: 900px;
+  }
+
+  /* Abschnitte */
+  section {
+    margin-bottom: 56px;
+    scroll-margin-top: 24px;
+  }
+
+  h2 {
+    font-size: 22px;
+    font-weight: 700;
+    color: #1a1a2e;
+    margin-bottom: 6px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #e0e6f0;
+  }
+
+  .section-intro {
+    color: #4a5878;
+    margin-bottom: 20px;
+    font-size: 14px;
+  }
+
+  h3 {
+    font-size: 15px;
+    font-weight: 700;
+    color: #2e3a5a;
+    margin: 24px 0 10px;
+  }
+
+  p { margin-bottom: 12px; color: #2e3a5a; }
+
+  /* Tabellen */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 14px 0 20px;
+    font-size: 14px;
+    background: #fff;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.07);
+  }
+
+  thead tr { background: #1a1a2e; color: #fff; }
+  thead th { padding: 10px 14px; text-align: left; font-weight: 600; font-size: 13px; }
+  tbody tr:nth-child(even) { background: #f8fafc; }
+  tbody tr:hover { background: #eef3fb; }
+  tbody td { padding: 9px 14px; border-bottom: 1px solid #e8edf5; vertical-align: top; }
+  tbody td:first-child { font-weight: 500; }
+
+  /* Code-Blöcke */
+  .code-block {
+    background: #1e2235;
+    color: #c8d8f0;
+    border-radius: 8px;
+    padding: 18px 20px;
+    font-family: 'Cascadia Code', 'Consolas', 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1.7;
+    margin: 12px 0 20px;
+    overflow-x: auto;
+    white-space: pre;
+  }
+
+  .code-block .comment { color: #5a7090; }
+  .code-block .keyword { color: #79b8ff; }
+  .code-block .string  { color: #9ecbff; }
+  .code-block .param   { color: #f0a050; }
+  .code-block .arrow   { color: #56d364; font-weight: bold; }
+  .code-block .arrow-big { color: #ff6b6b; font-weight: bold; }
+
+  /* Hinweis-Boxen */
+  .box {
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 14px 0;
+    font-size: 14px;
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+  }
+
+  .box-icon { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
+
+  .box.info    { background: #e8f0fe; border-left: 4px solid #4e9af1; color: #1a3060; }
+  .box.warn    { background: #fff4e0; border-left: 4px solid #f0a050; color: #5a3010; }
+  .box.success { background: #e6f9ee; border-left: 4px solid #34c472; color: #0f4020; }
+  .box.danger  { background: #fde8e8; border-left: 4px solid #e05555; color: #5a1010; }
+
+  /* Badges */
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    vertical-align: middle;
+  }
+  .badge-blue   { background: #dbeafe; color: #1d4ed8; }
+  .badge-green  { background: #dcfce7; color: #15803d; }
+  .badge-orange { background: #ffedd5; color: #c2410c; }
+  .badge-gray   { background: #f1f5f9; color: #475569; }
+
+  /* Schnellreferenz */
+  .ref-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin: 14px 0;
+  }
+
+  .ref-card {
+    background: #fff;
+    border: 1px solid #e0e6f0;
+    border-radius: 8px;
+    padding: 14px 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  }
+
+  .ref-card h4 {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: #7080a0;
+    margin-bottom: 8px;
+  }
+
+  .ref-card code {
+    display: block;
+    font-family: 'Cascadia Code', 'Consolas', monospace;
+    font-size: 12px;
+    color: #1a1a2e;
+    line-height: 1.8;
+    background: #f5f7fa;
+    padding: 8px 10px;
+    border-radius: 4px;
+  }
+
+  /* Nummer-Badges für Schritte */
+  .steps { margin: 14px 0; }
+  .step  { display: flex; gap: 14px; margin-bottom: 10px; align-items: flex-start; }
+  .step-num {
+    width: 26px; height: 26px; min-width: 26px;
+    background: #1a1a2e; color: #fff;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700;
+  }
+  .step-text { padding-top: 3px; font-size: 14px; color: #2e3a5a; }
+
+  /* Inline code */
+  code {
+    background: #e8edf5;
+    color: #1a3060;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-family: 'Cascadia Code', 'Consolas', monospace;
+    font-size: 13px;
+  }
+
+  @media (max-width: 900px) {
+    .layout { flex-direction: column; }
+    nav { width: 100%; height: auto; position: static; }
+    main { padding: 24px 20px; }
+    .ref-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+<!-- Navigation -->
+<nav>
+  <div class="nav-header">
+    <h1>Harry's Handbuch</h1>
+    <p>PHP Views mit Claude Code</p>
+  </div>
+  <ul>
+    <li class="section-label">Grundlagen</li>
+    <li><a href="#grundprinzip">1. Grundprinzip</a></li>
+    <li><a href="#seitentypen">2. Seitentypen</a></li>
+    <li><a href="#einfache-liste">3. Einfache Liste</a></li>
+    <li><a href="#api-pfad">4. API-Pfad</a></li>
+    <li class="section-label">Mehrere Datasets</li>
+    <li><a href="#pfeil-notation">5. Pfeil-Notation</a></li>
+    <li><a href="#beispiele">6. Beispiele</a></li>
+    <li class="section-label">Erweitert</li>
+    <li><a href="#select">7. /select</a></li>
+    <li><a href="#crud">8. CRUD</a></li>
+    <li><a href="#theming">9. Theming</a></li>
+    <li class="section-label">Referenz</li>
+    <li><a href="#fehler">10. Fehler &amp; Lösungen</a></li>
+    <li><a href="#schnellref">11. Schnell-Referenz</a></li>
+  </ul>
+</nav>
+
+<!-- Inhalt -->
+<main>
+
+<!-- 1. Grundprinzip -->
+<section id="grundprinzip">
+  <h2>1. Grundprinzip</h2>
+  <p class="section-intro">Du brauchst kein PHP zu können. Du beschreibst was du willst — Claude Code baut es.</p>
+
+  <table>
+    <thead><tr><th>Teil</th><th>Was du angibst</th><th>Beispiel</th></tr></thead>
+    <tbody>
+      <tr><td>Seite</td><td>Name und Route</td><td><code>Name: Kundenliste, Route: /kunden</code></td></tr>
+      <tr><td>Daten</td><td>Endpunkt + Felder + Sortierung</td><td><code>Endpunkt: adressen/getAdressen</code></td></tr>
+      <tr><td>Darstellung</td><td>Tabelle, Formular, Pagination</td><td><code>Seite mit Tabelle und Pagination</code></td></tr>
+    </tbody>
+  </table>
+
+  <div class="box success">
+    <span class="box-icon">✓</span>
+    <div>Claude Code liest beim Start automatisch <code>CLAUDE.md</code> — alle Regeln sind dort hinterlegt. Du musst sie nicht wiederholen.</div>
+  </div>
+</section>
+
+<!-- 2. Seitentypen -->
+<section id="seitentypen">
+  <h2>2. Seitentypen</h2>
+  <p class="section-intro">Der Begriff im Prompt bestimmt was Claude Code anlegt.</p>
+
+  <table>
+    <thead><tr><th>Begriff im Prompt</th><th>Was entsteht</th><th>Wann verwenden</th></tr></thead>
+    <tbody>
+      <tr><td><code>Seite</code></td><td>Einfache Seite ohne Tabelle</td><td>Dashboards, Detailansichten</td></tr>
+      <tr><td><code>Seite mit Tabelle</code></td><td>Liste als Bootstrap-Tabelle</td><td>Listen ohne Blättern</td></tr>
+      <tr><td><code>Seite mit Tabelle und Pagination</code></td><td>Liste mit Blättern</td><td>Große Datenmengen</td></tr>
+      <tr><td><code>Formular</code> oder <code>Eingabemaske</code></td><td>Seite mit Eingabefeldern</td><td>Erfassen, Bearbeiten</td></tr>
+    </tbody>
+  </table>
+
+  <div class="box warn">
+    <span class="box-icon">⚠</span>
+    <div>Kein <code>Formular</code> angeben wenn du nur eine Liste willst.<br>
+    Kein <code>Pagination</code> angeben wenn du keine Blätterfunktion brauchst.</div>
+  </div>
+</section>
+
+<!-- 3. Einfache Liste -->
+<section id="einfache-liste">
+  <h2>3. Einfache Liste</h2>
+  <p class="section-intro">Der minimale Prompt für eine Datenliste.</p>
+
+  <h3>Minimaler Prompt</h3>
+  <div class="code-block"><span class="comment">-- Einfachste Form</span>
+Lege eine Seite mit Tabelle an.
+Name: Kundenliste
+Route: /kunden
+Endpunkt: adressen/getAdressen
+Felder: kennziffer, name2, name1, ort
+Sortierung nach name2.</div>
+
+  <h3>Mit Pagination</h3>
+  <div class="code-block">Lege eine Seite mit Tabelle und Pagination an.
+Name: Kundenliste
+Route: /kunden
+Endpunkt: adressen/getAdressen
+Felder: kennziffer, name2, name1, ort
+Sortierung nach name2.
+20 Eintraege pro Seite.</div>
+
+  <h3>Mit Filter</h3>
+  <div class="code-block">Lege eine Seite mit Tabelle an.
+Name: Einsatzliste
+Route: /einsatz
+Endpunkt: dispo/getEinsatzFiltered
+Felder: nr, von, bis, bezeichnung, fahrer1
+Sortierung nach von.
+Filter: von (Datum), bis (Datum) -- Default: Anfang und Ende des aktuellen Monats.
+Button "Heute" setzt von und bis auf das heutige Datum.</div>
+</section>
+
+<!-- 4. API-Pfad -->
+<section id="api-pfad">
+  <h2>4. API-Pfad</h2>
+  <p class="section-intro">Der Pfad vor dem Endpunkt-Namen entspricht dem Controller in RATIOserver — er weicht manchmal vom Tabellennamen ab.</p>
+
+  <table>
+    <thead><tr><th>Tabelle</th><th>Pfad</th><th>Endpunkt im Prompt</th></tr></thead>
+    <tbody>
+      <tr><td>ADRESSEN</td><td>= Tabellenname</td><td><code>adressen/getAdressen</code></td></tr>
+      <tr><td>EINSATZ</td><td>weicht ab: <code>dispo</code></td><td><code>dispo/getEinsatz</code></td></tr>
+      <tr><td>RECHNUNG</td><td>= Tabellenname</td><td><code>rechnung/getRechnungen</code></td></tr>
+    </tbody>
+  </table>
+
+  <div class="box info">
+    <span class="box-icon">ℹ</span>
+    <div>Bei Unsicherheit welcher Pfad gilt: <strong>Rolf fragen</strong>.</div>
+  </div>
+</section>
+
+<!-- 5. Pfeil-Notation -->
+<section id="pfeil-notation">
+  <h2>5. Pfeil-Notation — Mehrere Datasets</h2>
+  <p class="section-intro">Wenn du Daten aus mehreren Tabellen auf einer Seite brauchst, beschreibst du die Beziehung mit Pfeilen. Claude Code baut das Mapping automatisch — du schreibst kein PHP.</p>
+
+  <h3>Die drei Pfeile</h3>
+  <table>
+    <thead><tr><th>Notation</th><th>Bedeutung</th><th>Wann verwenden</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>A.FREMDKEY <span style="color:#15803d;font-weight:700">-></span> B.KEY</code></td>
+        <td>Jeder Satz in A hat genau einen Satz in B</td>
+        <td>Lookup auf <strong>kleine</strong> Tabelle (Länder, Status, Kategorien)</td>
+      </tr>
+      <tr>
+        <td><code>A.FREMDKEY <span style="color:#15803d;font-weight:700">->*</span> B.KEY</code></td>
+        <td>Jeder Satz in A hat genau einen Satz in B</td>
+        <td>Lookup auf <strong>große</strong> Tabelle (Kunden, Artikel, Mitarbeiter)</td>
+      </tr>
+      <tr>
+        <td><code>A.KEY <span style="color:#c2410c;font-weight:700"><-</span> B.FREMDKEY</code></td>
+        <td>Jeder Satz in A hat mehrere Sätze in B</td>
+        <td>Detailpositionen, Unterpositionen (1:N)</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Wann → und wann →* ?</h3>
+  <table>
+    <thead><tr><th>Lookup-Tabelle</th><th>Beispiele</th><th>Pfeil</th></tr></thead>
+    <tbody>
+      <tr><td>Klein / überschaubar</td><td>Länder, Status, Kategorien, Währungen</td><td><span class="badge badge-green">→</span></td></tr>
+      <tr><td>Groß (viele Tausend Sätze)</td><td>Kunden, Artikel, Mitarbeiter, Lieferanten</td><td><span class="badge badge-orange">→*</span></td></tr>
+    </tbody>
+  </table>
+
+  <div class="box info">
+    <span class="box-icon">ℹ</span>
+    <div><strong>Faustregel:</strong> Wenn die Tabelle im Laufe der Zeit sehr groß werden kann — <code>→*</code> verwenden.</div>
+  </div>
+
+  <h3>Pfeile können verkettet werden</h3>
+  <div class="code-block"><span class="comment">-- Bedeutung: B ist der zentrale Dataset</span>
+<span class="comment">-- A hängt per 1:N an B (Positionen)</span>
+<span class="comment">-- C wird per N:1 Lookup aufgelöst (Kunde)</span>
+A <span class="arrow-big"><-</span> B.FREMDKEY <span class="arrow">->*</span> C.KEY</div>
+</section>
+
+<!-- 6. Beispiele -->
+<section id="beispiele">
+  <h2>6. Beispiele Pfeil-Notation</h2>
+
+  <h3>Beispiel 1 — Einfacher Lookup <span class="badge badge-green">→</span></h3>
+  <p>Rechnungen mit Statustext — Statustabelle ist klein:</p>
+  <div class="code-block">Lege eine Seite mit Tabelle an.
+Name: Rechnungsliste
+Route: /rechnungen
+
+Abfrage 1 -- Dataset: rechnungen:
+Endpunkt: rechnung/getRechnungen
+Felder: renr, statusid, betrag, datum
+Sortierung nach datum.
+
+Abfrage 2 -- Dataset: status:
+Endpunkt: rechnungsstatus/getRechnungsstatus
+Felder: id, bezeichnung
+
+Verknuepfung:
+RECHNUNG.STATUSID <span class="arrow">-></span> STATUS.ID</div>
+
+  <h3>Beispiel 2 — Lookup auf große Tabelle <span class="badge badge-orange">→*</span></h3>
+  <p>Rechnungen mit Kundenname — Kundentabelle hat viele Tausend Sätze:</p>
+  <div class="code-block">Lege eine Seite mit Tabelle an.
+Name: Rechnungsliste
+Route: /rechnungen
+
+Abfrage 1 -- Dataset: rechnungen:
+Endpunkt: rechnung/getRechnungen
+Felder: renr, kundenid, betrag, datum
+Sortierung nach datum.
+
+Abfrage 2 -- Dataset: kunden:
+Endpunkt: adressen/getAdresseById
+Felder: kennziffer, name2
+
+Verknuepfung:
+RECHNUNG.KUNDENID <span class="arrow">->*</span> KUNDE.KENNZIFFER</div>
+
+  <h3>Beispiel 3 — Detailpositionen <span class="badge badge-gray">←</span></h3>
+  <p>Rechnung mit allen zugehörigen Positionen:</p>
+  <div class="code-block">Lege eine Seite an.
+Name: Rechnungsdetail
+Route: /rechnungen/detail
+
+Abfrage 1 -- Dataset: rechnung:
+Endpunkt: rechnung/getRechnungById
+Felder: renr, datum, betrag, kundenid
+
+Abfrage 2 -- Dataset: positionen:
+Endpunkt: rechnung/getPositionen
+Felder: posnr, renr, artikel, menge, preis
+Sortierung nach posnr.
+
+Verknuepfung:
+RECHNUNG.RENR <span class="arrow-big"><-</span> POSITIONEN.RENR</div>
+
+  <h3>Beispiel 4 — Verkettet (1:N + N:1)</h3>
+  <p>Rechnungen mit Positionen UND Kundenname:</p>
+  <div class="code-block">Lege eine Seite an.
+Name: Rechnungsuebersicht
+Route: /rechnungen/uebersicht
+
+Abfrage 1 -- Dataset: rechnungen:
+Endpunkt: rechnung/getRechnungen
+Felder: renr, kundenid, betrag, datum
+Sortierung nach datum.
+
+Abfrage 2 -- Dataset: kunden:
+Endpunkt: adressen/getAdresseById
+Felder: kennziffer, name2
+
+Abfrage 3 -- Dataset: positionen:
+Endpunkt: rechnung/getPositionen
+Felder: posnr, renr, artikel, menge, preis
+Sortierung nach posnr.
+
+Verknuepfung:
+POSITIONEN <span class="arrow-big"><-</span> RECHNUNG.KUNDENID <span class="arrow">->*</span> KUNDE.KENNZIFFER</div>
+
+  <h3>Beispiel 5 — Mehrere unabhängige Lookups</h3>
+  <p>Einsatzplan: Fahrzeug und Fahrer kommen aus separaten Tabellen:</p>
+  <div class="code-block">Lege eine Seite mit Tabelle an.
+Name: Einsatzplan
+Route: /einsatz
+
+Abfrage 1 -- Dataset: einsaetze:
+Endpunkt: dispo/getEinsatz
+Felder: nr, von, bis, fahrzeugid, fahrerid
+Sortierung nach von.
+
+Abfrage 2 -- Dataset: fahrzeuge:
+Endpunkt: fahrzeuge/getFahrzeuge
+Felder: id, kennzeichen, typ
+
+Abfrage 3 -- Dataset: fahrer:
+Endpunkt: personal/getPersonal
+Felder: id, name, vorname
+
+Verknuepfung:
+EINSATZ.FAHRZEUGID <span class="arrow">-></span> FAHRZEUGE.ID
+EINSATZ.FAHRERID <span class="arrow">-></span> FAHRER.ID</div>
+</section>
+
+<!-- 7. /select -->
+<section id="select">
+  <h2>7. /select — Direkter SQL-Zugriff</h2>
+  <p class="section-intro">Wenn kein passender Endpunkt existiert, kannst du einen fertigen SQL übergeben.</p>
+
+  <div class="box danger">
+    <span class="box-icon">✗</span>
+    <div><strong>Du schreibst den SQL komplett selbst</strong> — Claude Code verändert ihn nicht und generiert keinen SQL.</div>
+  </div>
+
+  <h3>Parameter-Notation</h3>
+  <table>
+    <thead><tr><th>Notation</th><th>Quelle</th><th>Beispiel</th></tr></thead>
+    <tbody>
+      <tr><td><code>:[GET.param]</code></td><td>URL: <code>?id=123</code></td><td><code>:[GET.id]</code></td></tr>
+      <tr><td><code>:[POST.param]</code></td><td>Formular-Feld</td><td><code>:[POST.status]</code></td></tr>
+      <tr><td><code>:[datasetname.feld]</code></td><td>Ergebnis vorheriger Abfrage</td><td><code>:[kunde.kennziffer]</code></td></tr>
+      <tr><td><code>:["wert"]</code></td><td>Fester Wert</td><td><code>:["DE"]</code></td></tr>
+    </tbody>
+  </table>
+
+  <h3>Einfach — ohne Parameter</h3>
+  <div class="code-block">Lege eine Seite mit Tabelle an.
+Name: Auswertung
+Route: /auswertung
+
+Abfrage 1 -- Dataset: ergebnis:
+Endpunkt: /select
+SELECT nr, bezeichnung, sum(betrag) AS summe FROM auftraege GROUP BY nr, bezeichnung</div>
+
+  <h3>Mit allen Parameter-Typen</h3>
+  <div class="code-block">Lege eine Seite an.
+Name: Kundenauftraege
+Route: /kundenauftraege
+
+Abfrage 1 -- Dataset: kunde:
+Endpunkt: /select
+SELECT kennziffer, name1, name2 FROM adressen WHERE kennziffer = <span class="param">:[GET.id]</span>
+
+Abfrage 2 -- Dataset: auftraege:
+Endpunkt: /select
+SELECT auftrnr, datum, betrag, status
+FROM auftraege
+WHERE kundenid = <span class="param">:[kunde.kennziffer]</span>
+AND land = <span class="param">:["DE"]</span>
+AND status = <span class="param">:[POST.status]</span></div>
+</section>
+
+<!-- 8. CRUD -->
+<section id="crud">
+  <h2>8. CRUD — Datensätze bearbeiten</h2>
+  <p class="section-intro">Wenn eine Liste bearbeitbar sein soll, ergänze den Prompt:</p>
+
+  <div class="code-block">Die Kundenliste soll editierbar sein: INSERT, EDIT, DELETE.
+Verwende das Muster aus ClaudeCodePatterns/controller-example.php.</div>
+
+  <p>Claude Code legt automatisch an:</p>
+  <div class="steps">
+    <div class="step"><div class="step-num">1</div><div class="step-text">Bearbeiten-Button in der ersten Tabellenspalte</div></div>
+    <div class="step"><div class="step-num">2</div><div class="step-text">Löschen-Button mit Bestätigung (Bootstrap Modal)</div></div>
+    <div class="step"><div class="step-num">3</div><div class="step-text">Formular für Neu-Anlage und Bearbeitung</div></div>
+  </div>
+</section>
+
+<!-- 9. Theming -->
+<section id="theming">
+  <h2>9. Theming — Farben anpassen</h2>
+  <div class="code-block">Passe das Farbschema in public/css/app.css an.
+Hauptfarbe: #2E6DA4</div>
+  <div class="box success">
+    <span class="box-icon">✓</span>
+    <div>Alle Farben der App ändern sich automatisch — kein weiteres CSS nötig.</div>
+  </div>
+</section>
+
+<!-- 10. Fehler -->
+<section id="fehler">
+  <h2>10. Fehler &amp; Lösungen</h2>
+  <table>
+    <thead><tr><th>Fehler</th><th>Ursache</th><th>Lösung</th></tr></thead>
+    <tbody>
+      <tr><td>Leere Seite</td><td>Nicht eingeloggt</td><td>Neu einloggen</td></tr>
+      <tr><td>Keine Daten bei Pagination</td><td>Falscher Datenzugriff im Controller</td><td>Fehlermeldung an Claude Code weitergeben</td></tr>
+      <tr><td>404</td><td>Route fehlt</td><td>Claude Code nach <code>config/routes.php</code> fragen</td></tr>
+      <tr><td>Falsche Daten im Lookup</td><td>Falsches Verknüpfungsfeld</td><td>Pfeil-Notation prüfen — Feldnamen korrekt?</td></tr>
+      <tr><td>Endpunkt nicht gefunden</td><td>Pfad weicht vom Tabellennamen ab</td><td>Rolf fragen welcher Pfad gilt</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- 11. Schnell-Referenz -->
+<section id="schnellref">
+  <h2>11. Schnell-Referenz</h2>
+
+  <div class="ref-grid">
+    <div class="ref-card">
+      <h4>Seitentyp</h4>
+      <code>Lege eine Seite an.
+Lege eine Seite mit Tabelle an.
+Lege eine Seite mit Tabelle
+  und Pagination an.</code>
+    </div>
+    <div class="ref-card">
+      <h4>Pflichtangaben</h4>
+      <code>Name: &lt;Seitenname&gt;
+Route: /&lt;pfad&gt;
+Endpunkt: controller/getXxx
+Felder: feld1, feld2, feld3
+Sortierung nach feld1.</code>
+    </div>
+    <div class="ref-card">
+      <h4>Pfeile</h4>
+      <code>A.FK  ->  B.KEY   klein
+A.FK  ->* B.KEY   gross
+A.KEY <-  B.FK    1:N</code>
+    </div>
+    <div class="ref-card">
+      <h4>Parameter (/select)</h4>
+      <code>:[GET.param]
+:[POST.param]
+:[datasetname.feld]
+:["fester wert"]</code>
+    </div>
+    <div class="ref-card">
+      <h4>Optional</h4>
+      <code>20 Eintraege pro Seite.
+Filter: ...
+Verknuepfung: ...</code>
+    </div>
+    <div class="ref-card">
+      <h4>CRUD</h4>
+      <code>...soll editierbar sein:
+INSERT, EDIT, DELETE.
+Verwende das Muster aus
+ClaudeCodePatterns/
+controller-example.php.</code>
+    </div>
+  </div>
+
+  <h3>Vollständiges Muster-Prompt</h3>
+  <div class="code-block">Lege eine Seite mit Tabelle und Pagination an.
+Name: Rechnungsuebersicht
+Route: /rechnungen
+
+Abfrage 1 -- Dataset: rechnungen:
+Endpunkt: rechnung/getRechnungen
+Felder: renr, kundenid, betrag, datum
+Sortierung nach datum.
+20 Eintraege pro Seite.
+
+Abfrage 2 -- Dataset: kunden:
+Endpunkt: adressen/getAdresseById
+Felder: kennziffer, name2
+
+Verknuepfung:
+RECHNUNG.KUNDENID <span class="arrow">->*</span> KUNDE.KENNZIFFER
+
+Anzuzeigende Spalten in der Tabelle:
+renr, kunden.name2, betrag, datum</div>
+</section>
+
+</main>
+</div>
+</body>
+</html>
