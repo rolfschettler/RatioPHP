@@ -354,6 +354,7 @@ class AnmietimportController extends BaseController
 
         $this->render('anmietimport/index', [
             'page_title'  => 'Anmietimport',
+            'portal'      => 'mitarbeiter',
             'page_header' => '
                 <h1 class="h5 fw-bold mb-0" style="color:var(--text-color);">Anmietimport</h1>',
             'toolbar'     => $toolbar,

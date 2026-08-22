@@ -38,6 +38,8 @@ class View
         // Layout-Variablen mit Defaults
         $layoutData = [
             'page_title'  => $data['page_title']  ?? APP_NAME,
+            // Portal-Kontext steuert Header und Login-Modal -- Default Kundenportal
+            'portal'      => $data['portal']      ?? 'kunde',
             'page_header' => $data['page_header'] ?? '',
             'toolbar'     => $data['toolbar']     ?? '',
             'pager'       => $data['pager']       ?? '',

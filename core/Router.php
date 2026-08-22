@@ -59,7 +59,7 @@ class Router
 
             // Auth-Check: Token kommt aus Cookie -- NICHT aus Session
             if ($route['auth'] && empty($_COOKIE['jwt_token'])) {
-                header('Location: ' . APP_BASE . '/login');
+                header('Location: ' . APP_BASE . '/mitarbeiter?login=1');
                 exit;
             }
 

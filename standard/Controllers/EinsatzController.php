@@ -189,6 +189,7 @@ class EinsatzController extends BaseController
         // 5. Rendern -- Filterwerte fuers Highlighting an den View geben
         $this->render('einsatz/index', [
             'page_title'  => 'Einsatz-Uebersicht',
+            'portal'      => 'mitarbeiter',
             'page_header' => '
                 <h1 class="h5 fw-bold mb-0" style="color:var(--text-color);">Einsatz-&Uuml;bersicht</h1>
                 <span class="badge rounded-pill"

@@ -27,12 +27,17 @@ Entwickler:
 │   ├── Router.php                  <- URL-Matching + Dispatch
 │   ├── Api.php                     <- api_post() + Token-Handling
 │   ├── BaseController.php          <- Basis fuer alle Controller
+│   ├── Codec.php                   <- Codieren/DeCodieren aus rechtelib.pas (USERS.passwort)
 │   └── View.php                    <- render() / layout()
 │
 ├── standard/                       <- Standardmodule (gleich fuer alle Kunden)
 │   ├── Controllers/
+│   │   ├── HomeController.php      <- Startseiten beider Portale
 │   │   └── BeispielController.php
 │   └── Views/
+│       ├── home/
+│       │   ├── index.php           <- Kundenportal-Startseite (/)
+│       │   └── mitarbeiter.php     <- Mitarbeiterportal-Startseite (/mitarbeiter)
 │       └── beispiel/
 │           └── index.php
 │
@@ -44,8 +49,10 @@ Entwickler:
 │           └── index.php
 │
 ├── views/                          <- Gemeinsame View-Bausteine
-│   ├── layout.php                  <- Haupt-Layout (aus ClaudeCodePatterns kopiert)
+│   ├── layout.php                  <- Haupt-Layout (portalabhaengig -- siehe Abschnitt Layout)
 │   └── components/
+│       ├── header.php              <- Portalabhaengige Navigation (siehe Abschnitt Portalstruktur)
+│       ├── login-modal.php         <- Login-Modal (nur Mitarbeiterportal)
 │       ├── flash.php               <- Fehler- und Erfolgsmeldungen
 │       └── pagination.php          <- Bootstrap-Pagination (siehe Abschnitt Pagination)
 │
@@ -77,6 +84,206 @@ Entwickler:
 
 **Claude Code darf in `ClaudeCodePatterns/` KEINE neuen Dateien anlegen -- nur lesen.**
 Der Ordner enthaelt getestete Referenz-Implementierungen die 1:1 kopiert werden.
+
+---
+
+## Portalstruktur
+
+Die App besteht aus zwei getrennten Portalen. Beide teilen Layout, Theming und
+Framework-Kern -- unterscheiden sich aber in Navigation und Login.
+
+| Portal | Einstieg | Auth | Inhalt |
+|---|---|---|---|
+| **Kundenportal** | `/` -- Default-Einstieg | oeffentlich | Registrierung (`typ='kunde'`). Kein Login-Bereich. |
+| **Mitarbeiterportal** | `/mitarbeiter` -- nur direkt per URL | Login per Modal | Alle geschuetzten Module (EINSATZ, ANMIETIMPORT, ...) plus Mitarbeiter-Registrierung (`typ='mitarbeiter'`) |
+
+### Grundregeln
+
+- `/` ist IMMER das Kundenportal -- der Default-Einstieg fuer externe Besucher.
+- Das Mitarbeiterportal wird ausschliesslich ueber die URL `/mitarbeiter` angesteuert.
+  **Es gibt KEINEN Link vom Kundenportal ins Mitarbeiterportal** -- keine Portalwahl,
+  kein Umschalter, kein Hinweis im Footer.
+- **Beide Portale haben einen eigenen Login** (Bootstrap-Modal, dieselbe Komponente).
+  Unterschieden wird nur das Weiterleitungsziel: das Formular schickt ein verstecktes
+  Feld `portal` mit, der Logout-Link haengt `?portal=..` an. Der `AuthController`
+  bildet den Wert gegen eine Whitelist ab -- niemals einen Pfad aus dem Request
+  uebernehmen.
+- Umgekehrt zeigt das Mitarbeiterportal keine Kundenportal-Menuepunkte
+  (z.B. keine Registrierung).
+- **Jeder Logout-Link braucht `?portal=..`.** Fehlt er, landet der Nutzer im
+  Kundenportal (Default) -- ein Mitarbeiter also im falschen Portal.
+
+### Portal-Kontext: die Variable `$portal`
+
+Jeder `render()`-Aufruf gibt sein Portal mit. Zulaessige Werte: `'kunde'` (Default)
+und `'mitarbeiter'`. `core/View.php` reicht den Wert ans Layout durch, `views/layout.php`
+und `views/components/header.php` werten ihn aus.
+
+```php
+// Kundenportal-Seite
+$this->render('registrierung/index', [
+    'page_title' => 'Registrieren',
+    'portal'     => 'kunde',
+]);
+
+// Mitarbeiterportal-Seite
+$this->render('einsatz/index', [
+    'page_title'  => 'Einsatz-Uebersicht',
+    'portal'      => 'mitarbeiter',
+]);
+```
+
+**WICHTIG fuer Claude Code:** `'portal'` bei JEDEM neuen Controller mitgeben --
+auch im Kundenportal, wo `'kunde'` ohnehin der Default ist. Fehlt der Wert bei einem
+Mitarbeiter-Modul, rendert das Layout die Seite mit Kunden-Navigation und ohne
+Login-Modal -- der Benutzer kann sich dann nicht mehr anmelden.
+
+`$portal` steuert konkret:
+
+| Was | `'kunde'` | `'mitarbeiter'` |
+|---|---|---|
+| Brand-Link im Header | `/` | `/mitarbeiter` |
+| Menuepunkte | nur Start | nur Start |
+| Rechte Navigation | Anmelden-Modal bzw. Benutzer-Dropdown | dito |
+| Login-Modal im HTML | wird gerendert | wird gerendert |
+| Verstecktes Feld `portal` im Modal | `kunde` | `mitarbeiter` |
+| Registrierungs-Link im Modal | `/registrieren` | `/mitarbeiter/registrieren` |
+| Ziel nach Login/Logout | `/` | `/mitarbeiter` |
+| Benutzername im Footer | ja, falls eingeloggt | ja, falls eingeloggt |
+| Portal-Label neben Brand | "Kundenportal" | "Mitarbeiterportal" |
+
+### Keine Feature-Links im Header
+
+**Der Header verlinkt KEINE Features/Module** -- weder im Kunden- noch im
+Mitarbeiterportal. Er enthaelt ausschliesslich:
+
+- Brand (fuehrt zur Portal-Startseite)
+- Portal-Label
+- Menuepunkt "Start"
+- im Mitarbeiterportal: Anmelden-Modal bzw. Benutzer-Dropdown mit Abmelden
+
+Module werden ausschliesslich ueber die Kacheln der Portal-Startseite erreicht.
+Beim Anlegen eines neuen Moduls also **keinen Menuepunkt** in
+`views/components/header.php` ergaenzen.
+
+### Neues Modul zuordnen
+
+- Geschuetztes Modul (Default `auth: true`) -> Mitarbeiterportal:
+  `'portal' => 'mitarbeiter'` im `render()` und Kachel in
+  `standard/Views/home/mitarbeiter.php` ergaenzen.
+- Oeffentliches Modul fuer Kunden -> Kundenportal: `'portal' => 'kunde'`
+  und Einstieg in `standard/Views/home/index.php` ergaenzen.
+- In beiden Faellen: `views/components/header.php` bleibt unangetastet.
+
+---
+
+## Registrierung
+
+Beide Portale registrieren ueber denselben Controller
+(`standard/Controllers/RegistrierungController.php`), dieselbe Verarbeitung und
+denselben View. Die Unterschiede stehen ausschliesslich in der Konstante `PORTALE`.
+Zwei getrennte Formulare wuerden mit der Zeit auseinanderdriften -- deshalb NIE
+kopieren, sondern eine weitere Variante in `PORTALE` ergaenzen.
+
+| Portal | Route | `typ` | Zugang | `username` | Adresse | Passwort |
+|---|---|---|---|---|---|---|
+| Kundenportal | `/registrieren` | `kunde` | offen | E-Mail-Adresse | ADRESSEN wird angelegt bzw. verknuepft | eigenes Portalpasswort mit Wiederholung |
+| Mitarbeiterportal | `/mitarbeiter/registrieren` | `mitarbeiter` | nur mit Loginname + Passwort aus USERS | USERS-Loginname | keine | das USERS-Passwort, keine Wiederholung |
+
+Das Mitarbeiterformular fragt genau zwei Felder ab: Loginname und Passwort. Keine
+E-Mail-Adresse -- REGISTRIERUNG hat kein E-Mail-Feld, und ohne Adresse gibt es auch
+kein `ADRESSEN.email`, in dem sie landen koennte. Grundsatz: **kein Formular fragt
+Daten ab, die nirgends gespeichert werden.**
+
+### typ ist Pflicht -- und steuert die Adressbehandlung
+
+`REGISTRIERUNG.typ` haelt fest, aus welchem Portal registriert wurde. Der Endpunkt
+`insertregistrierunglocal` nimmt `typ` an (Whitelist `username, pwd2, typ`) und
+entscheidet daran, ob eine Adresse entsteht:
+
+- `typ='kunde'` -- REGISTRIERUNG und ADRESSEN in einer Transaktion. `anrede`,
+  `name1`, `name2` sind Pflicht, `kennziffer` verknuepft eine bestehende Adresse.
+- **jeder andere `typ`** (z.B. `mitarbeiter`) und **fehlender `typ`** -- KEINE
+  Adresse, `kennziffer` bleibt `NULL`, die Adressfelder werden ignoriert. Die
+  Antwort lautet dann `"kennziffer":null` und `"adresse":"keine"`.
+
+**Jeder Registrierungsvorgang setzt `typ` passend zum Portal** -- ohne den Wert
+bleibt das Feld `null`, spaetere Auswertungen koennen Kunden nicht von Mitarbeitern
+unterscheiden, UND es wird stillschweigend keine Adresse angelegt.
+
+Welche Felder ein Formular abfragt, steuert `PORTALE[..]['adressdaten']` im
+Controller. Ein Formular fragt NIE Felder ab, die der Endpunkt bei diesem `typ`
+ohnehin verwirft.
+
+### Mitarbeiter-Registrierung -- Nachweis ueber USERS
+
+Die Route ist `['auth' => false]`, der Zugang wird aber NICHT per JWT geregelt,
+sondern in `pruefeMitarbeiter()`: registrieren darf sich nur, wer in USERS mit
+Loginname und Passwort existiert. `USERS.passwort` liegt codiert vor und wird mit
+`Core\Codec::decodieren()` entschluesselt.
+
+Die geprueften USERS-Zugangsdaten sind gleichzeitig die Portal-Zugangsdaten: der
+Loginname wird als `REGISTRIERUNG.username` gespeichert, das Passwort gehasht
+(`password_hash`) als `REGISTRIERUNG.pwd2`. Deshalb hat das Mitarbeiterformular
+KEIN eigenes Passwortfeld, keine Wiederholung und keine E-Mail-Adresse -- der
+Mitarbeiter meldet sich am Portal mit genau denselben Daten an, die er ohnehin kennt.
+
+Gegengeprueft: `/login` verifiziert `REGISTRIERUNG.pwd2` per `password_verify` und
+akzeptiert einen von PHP geschriebenen `password_hash` -- die Kette funktioniert.
+
+Regeln dabei:
+
+- Jeder Fehlschlag -- unbekannter Loginname, falsches Passwort, gesperrtes Konto --
+  ergibt DIESELBE Meldung („Der gewünschte Mitarbeiter ist im System nicht
+  angelegt"). Unterschiedliche Meldungen wuerden verraten, welche Loginnamen
+  existieren. Ausnahme: ein leeres Passwortfeld bekommt einen eigenen Hinweis --
+  das verraet nichts ueber das Konto und wird vor den Zaehlern geprueft.
+- Fail-closed: nur ein tatsaechlich passendes Passwort laesst weiterlaufen. Fehlt die
+  Route oder ist die Antwort unlesbar, wird abgebrochen -- niemals durchgelassen.
+- Die USERS-Eingabe ist KEINE Anmeldung: es wird kein `jwt_token`-Cookie gesetzt.
+- Das Formular ist eine oeffentliche Brute-Force-Flaeche auf Mitarbeiterkonten,
+  deshalb zwei Zaehler: pro IP und pro Loginname. Der Loginname landet nur als
+  SHA-256-Hash in der Zaehlerdatei.
+
+### Rate-Limiting zum Testen abschalten
+
+`index.php` kennt dafuer die Konstante `RATE_LIMIT_AKTIV`:
+
+```php
+define('RATE_LIMIT_AKTIV', false);   // nur zum Testen
+```
+
+Dann greift keine Grenze und es wird auch nichts gezaehlt -- die Zaehlerdatei
+entsteht gar nicht. Das gilt fuer alle Zaehler (Registrierung,
+Verfuegbarkeitspruefung, Mitarbeiter-Login).
+
+**Sicherung:** `false` wirkt ausschliesslich zusammen mit `DEBUG = true`. Bleibt es
+versehentlich im Deployment stehen, greift das Limit dort trotzdem -- solange `DEBUG`
+dort wie vorgesehen `false` ist. Nach dem Testen bitte wieder auf `true` setzen; der
+eingecheckte Zustand ist immer `true`.
+
+Alternative ohne Codeaenderung -- nur die Zaehler zuruecksetzen:
+
+```bash
+rm -f "$(php -r 'echo sys_get_temp_dir();')/ratiophp_registrierung_ratelimit.json"
+```
+
+Achtung: Apache und die PHP-CLI koennen unterschiedliche Temp-Verzeichnisse haben.
+Beim Apache dieser Installation liegt die Datei unter `C:\Windows\Temp`.
+
+**Regel fuer Claude Code:** Kein Schutzmechanismus wird "zum Testen" ersatzlos
+entfernt oder aufgeweicht. Wenn er im Test stoert, bekommt er einen ausdruecklichen
+Schalter, der in der Produktion nicht greifen kann -- so wie hier.
+
+### core/Codec.php
+
+Sinngemaesse Portierung von `Codieren`/`DeCodieren` aus
+`D:\Delphi\RATIOserver\Shared\rechtelib.pas` -- ein positionsabhaengiges XOR
+(`Chr(Ord(zeichen) XOR (65 + i))`, 1-basiert), symmetrisch in beide Richtungen;
+`DeCodieren` ignoriert ein abschliessendes `.`.
+
+**Aendert sich `rechtelib.pas`, muss `core/Codec.php` nachgezogen werden.**
+Nie eine eigene Variante der Rechnung in einen Controller schreiben.
 
 ---
 
@@ -173,25 +380,45 @@ Fehler (HTTP 401):
 ### Login-Ablauf im AuthController
 
 Das Login-Formular sitzt in einem Bootstrap-Modal (`views/components/login-modal.php`).
-Das Modal ist im `layout.php` eingebunden -- damit auf jeder Seite verfuegbar.
-Der "Anmelden"-Link im Header oeffnet das Modal per `data-bs-toggle="modal"`.
+Das Modal ist im `layout.php` eingebunden und wird in BEIDEN Portalen gerendert.
+Der "Anmelden"-Link im Header oeffnet es per `data-bs-toggle="modal"`.
 
 Es gibt keine GET-Route `/login` -- nur POST `/login` fuer den Formular-Submit.
-Bei Fehler: Flash-Message setzen und zurueck auf `/` (Modal oeffnet sich erneut via `?login=1`).
-Bei Erfolg: redirect auf `/`.
+`/login` prueft gegen REGISTRIERUNG (`pwd2` per `password_verify`) -- dort liegen
+Kunden- und Mitarbeiter-Registrierungen gleichermassen. Es gibt also nur EINEN
+Login-Endpunkt fuer beide Portale.
+
+**Das Weiterleitungsziel kommt aus dem versteckten Feld `portal`:**
+
+| `portal` | nach Login | nach Fehler | nach Logout |
+|---|---|---|---|
+| `kunde` | `/` | `/?login=1` | `/` |
+| `mitarbeiter` | `/mitarbeiter` | `/mitarbeiter?login=1` | `/mitarbeiter` |
+
+Der `AuthController` bildet den Wert ueber die Konstante `PORTAL_ZIELE` ab.
+Unbekannte, fehlende oder manipulierte Werte landen im Kundenportal.
+
+```php
+// RICHTIG -- nur Portalnamen annehmen, Pfad aus der Whitelist
+private const PORTAL_ZIELE = ['kunde' => '/', 'mitarbeiter' => '/mitarbeiter'];
+$ziel = self::PORTAL_ZIELE[$this->portal((string)($_POST['portal'] ?? ''))];
+
+// FALSCH -- Pfad aus dem Request ist eine offene Weiterleitung
+$ziel = $_POST['redirect_to'] ?? '/';
+```
 
 Nach erfolgreichem Login:
 1. Token aus API-Antwort lesen
 2. Benutzernamen direkt aus `$_POST['user']` -- kein `verifytoken` noetig
 3. Beide Cookies setzen (`jwt_token` + `jwt_user`)
-4. Auf Startseite weiterleiten
+4. Auf `/mitarbeiter` weiterleiten
 
 ```php
 public function login(): void
 {
     // Nur POST erlaubt -- kein GET
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-        $this->redirect('/');
+        $this->redirect('/mitarbeiter');
         return;
     }
 
@@ -206,7 +433,7 @@ public function login(): void
 
     if (empty($response['token'])) {
         $this->flashError($response['message'] ?? 'Login fehlgeschlagen');
-        $this->redirect('/?login=1');  // ?login=1 oeffnet das Modal automatisch per JS
+        $this->redirect('/mitarbeiter?login=1');  // ?login=1 oeffnet das Modal automatisch per JS
         return;
     }
 
@@ -229,7 +456,7 @@ public function login(): void
         'httponly' => false,
     ]);
 
-    $this->redirect('/');
+    $this->redirect('/mitarbeiter');
 }
 
 public function logout(): void
@@ -237,15 +464,29 @@ public function logout(): void
     // Beide Cookies loeschen
     setcookie('jwt_token', '', ['expires' => time() - 3600, 'path' => '/', 'samesite' => 'Strict', 'secure' => isset($_SERVER['HTTPS']), 'httponly' => true]);
     setcookie('jwt_user',  '', ['expires' => time() - 3600, 'path' => '/', 'samesite' => 'Strict', 'secure' => isset($_SERVER['HTTPS']), 'httponly' => false]);
-    $this->redirect('/');
+    $this->redirect('/mitarbeiter');
 }
 ```
 
 ### Header-Komponente
 
-Die Header-Komponente prueft `$_COOKIE['jwt_token']` -- NIEMALS `$_SESSION`.
+Die Navigation liegt in `views/components/header.php` und wird von `views/layout.php`
+per `include` eingebunden -- nie direkt im Layout ausgeschrieben, nie in einem View.
 
-Der Benutzerbereich im Header ist ein **Bootstrap Dropdown-Menue**:
+Die Komponente wertet `$portal` aus (siehe Abschnitt Portalstruktur). Sie enthaelt
+**keine Feature-Links** -- nur Brand, Portal-Label und "Start". Der Benutzerbereich
+existiert ausschliesslich im Mitarbeiterportal:
+
+```php
+$portal = $portal ?? 'kunde';
+$istMitarbeiter = ($portal === 'mitarbeiter');
+$portalStart    = $istMitarbeiter ? '/mitarbeiter' : '/';
+```
+
+Die Login-Pruefung selbst nutzt `$_COOKIE['jwt_token']` -- NIEMALS `$_SESSION`.
+
+Der Benutzerbereich im Header ist ein **Bootstrap Dropdown-Menue** und wird nur
+im `$istMitarbeiter`-Zweig ausgegeben:
 
 ```php
 <?php if (!empty($_COOKIE['jwt_token'])): ?>
@@ -280,6 +521,9 @@ Der Benutzerbereich im Header ist ein **Bootstrap Dropdown-Menue**:
 ```
 
 **WICHTIG fuer Claude Code:**
+- Navigation IMMER als Komponente `views/components/header.php` -- nie im Layout inline
+- KEINE Feature-/Modul-Links im Header -- Zugang nur ueber die Portal-Startseite
+- Kein Link vom Kundenportal ins Mitarbeiterportal
 - Benutzerbereich IMMER als Bootstrap Dropdown -- kein einfacher Link
 - `$_COOKIE['jwt_token']` fuer Login-Pruefung
 - `$_COOKIE['jwt_user']` fuer Anzeigename
@@ -287,12 +531,23 @@ Der Benutzerbereich im Header ist ein **Bootstrap Dropdown-Menue**:
 
 ### Router Auth-Check
 
+Geschuetzte Routen gehoeren immer zum Mitarbeiterportal. Nicht eingeloggte Nutzer
+landen daher auf `/mitarbeiter?login=1` -- dort ist das Login-Modal verfuegbar und
+oeffnet sich automatisch.
+
 ```php
-// RICHTIG -- nicht eingeloggte User landen auf der Startseite (mit Anmelden-Button)
+// RICHTIG -- Ziel ist das Mitarbeiterportal, Modal oeffnet sich per ?login=1
 if ($route['auth'] && empty($_COOKIE['jwt_token'])) {
-    header('Location: ' . APP_BASE . '/');
+    header('Location: ' . APP_BASE . '/mitarbeiter?login=1');
     exit;
 }
+
+// FALSCH -- geschuetzte Routen gehoeren zum Mitarbeiterportal, nicht nach /
+// (das Kundenportal hat zwar inzwischen ein Login-Modal, ist aber das falsche Ziel)
+header('Location: ' . APP_BASE . '/');
+
+// FALSCH -- /login existiert nur als POST-Route, das ergibt einen 404
+header('Location: ' . APP_BASE . '/login');
 
 // FALSCH -- Session wird nicht verwendet
 if ($route['auth'] && empty($_SESSION['jwt_token'])) { ... }
@@ -339,7 +594,7 @@ Bei HTTP 500 -- beide Cookies loeschen und auf Startseite umleiten:
 ```php
 setcookie('jwt_token', '', ['expires' => time() - 3600, 'path' => '/', 'samesite' => 'Strict', 'secure' => isset($_SERVER['HTTPS']), 'httponly' => true]);
 setcookie('jwt_user',  '', ['expires' => time() - 3600, 'path' => '/', 'samesite' => 'Strict', 'secure' => isset($_SERVER['HTTPS']), 'httponly' => false]);
-$this->redirect('/');
+$this->redirect('/mitarbeiter');
 ```
 
 ### Was Claude Code beim Befehl "Erstelle einen Login" anlegen soll
@@ -349,13 +604,19 @@ $this->redirect('/');
 - `standard/Controllers/AuthController.php` mit `login()` und `logout()` gemaess Muster oben
 - `views/components/login-modal.php` -- Bootstrap-Modal mit Login-Formular
   - `action="<?= APP_BASE ?>/login"` method POST
-  - Felder: `user`, `password`
+  - Felder: `user`, `password`, verstecktes `portal`
   - Kein `required` auf dem Passwort-Feld
   - Flash-Fehlermeldung im Modal anzeigen
   - JS-Snippet: Modal automatisch oeffnen wenn URL-Parameter `?login=1` gesetzt
-- `views/layout.php` -- Login-Modal einbinden (direkt vor `</body>`):
-  `<?php include VIEW_PATH . '/components/login-modal.php'; ?>`
-- Header-Komponente: "Anmelden"-Link oeffnet Modal per `data-bs-toggle="modal" data-bs-target="#loginModal"`
+- `views/layout.php` -- Login-Modal einbinden (direkt vor `</body>`), in BEIDEN
+  Portalen ohne Bedingung:
+  ```php
+  <?php include VIEW_PATH . '/components/login-modal.php'; ?>
+  ```
+- `views/components/header.php` -- "Anmelden"-Link bzw. Benutzer-Dropdown, in
+  beiden Portalen. Modal per `data-bs-toggle="modal" data-bs-target="#loginModal"`
+- Redirects von `login()` und `logout()` richten sich nach `portal` (siehe Tabelle
+  oben) -- immer aus der Whitelist, nie ein Pfad aus dem Request
 - Keine eigene View `auth/login.php` -- das Modal ersetzt sie vollstaendig
 
 ---
@@ -367,6 +628,7 @@ $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? 'https' : 
 define('BASE_URL', $scheme . '://' . $_SERVER['HTTP_HOST'] . '/ibapi');
 define('APP_BASE',  rtrim(dirname($_SERVER['SCRIPT_NAME']), '/'));
 define('DEBUG', true);  // Entwicklung: true -- Produktion: false
+define('RATE_LIMIT_AKTIV', true);  // nur zum Testen false -- siehe Abschnitt Registrierung
 ```
 
 ### BASE_URL
@@ -403,14 +665,17 @@ Sofort durch die Konstante `APP_BASE` ersetzen.
 
 ### JWT_TOKEN
 **Kein `define()` fuer JWT_TOKEN in index.php.**
-Der Token ist beim Start von index.php noch nicht verfuegbar -- die Session
-wird erst spaeter gestartet. Token immer direkt aus der Session lesen:
+Der Token steckt im Cookie und kann sich pro Request unterscheiden -- eine Konstante
+wuerde einen veralteten Wert festschreiben. Token immer direkt aus dem Cookie lesen:
 ```php
-// RICHTIG -- direkt in Api.php aus Session lesen
-$_SESSION['jwt_token'] ?? ''
+// RICHTIG -- direkt in Api.php aus dem Cookie lesen
+$_COOKIE['jwt_token'] ?? ''
 
-// FALSCH -- Session ist beim define() noch nicht gestartet
-define('JWT_TOKEN', $_SESSION['jwt_token'] ?? '');
+// FALSCH -- Konstante friert den Wert ein
+define('JWT_TOKEN', $_COOKIE['jwt_token'] ?? '');
+
+// FALSCH -- die Session wird fuer den Token nicht verwendet
+$_SESSION['jwt_token'] ?? ''
 ```
 
 ---
@@ -933,14 +1198,41 @@ Primaerfarbe (Blau, Gruen, Violett) bleibt `--on-primary` Weiss.
 
 ### Dateien
 
-Das Layout besteht aus zwei Dateien die 1:1 aus `ClaudeCodePatterns/` kopiert werden -- nie neu generieren:
-
-| Quelle | Ziel |
+| Datei | Herkunft |
 |---|---|
-| `ClaudeCodePatterns/layout.php` | `views/layout.php` |
-| `ClaudeCodePatterns/app.css` | `public/css/app.css` |
+| `public/css/app.css` | 1:1 aus `ClaudeCodePatterns/app.css` -- nie neu generieren |
+| `views/layout.php` | Basis `ClaudeCodePatterns/layout.php` **plus Portal-Anpassung** (siehe unten) |
+| `views/components/header.php` | projektspezifisch -- kein Pattern-Pendant |
 
 Fuer Details siehe `ClaudeCodePatterns/layout-pattern.md`.
+
+**Abweichung vom Pattern -- bewusst und nicht zurueckzubauen:**
+`views/layout.php` weicht in drei Punkten von `ClaudeCodePatterns/layout.php` ab,
+weil das Pattern die Portalstruktur nicht kennt:
+
+1. Der Header-Block ist durch `include VIEW_PATH . '/components/header.php'` ersetzt.
+2. Das Login-Modal ist ohne Bedingung eingebunden -- beide Portale haben ein Login,
+   die Komponente wertet `$portal` selbst aus.
+3. Der Benutzername im Footer erscheint in beiden Portalen, sobald angemeldet.
+
+Ebenso weicht `core/Router.php` in einer Zeile ab: der Auth-Redirect zeigt auf
+`/mitarbeiter?login=1` statt auf `/login` (siehe Abschnitt Router Auth-Check).
+
+Beim Uebernehmen einer neuen Pattern-Version diese drei Punkte und die Router-Zeile
+erneut einarbeiten -- nicht das Pattern blind ueberkopieren.
+
+### Layout-Variablen
+
+`core/View.php` reicht diese Werte ans Layout durch:
+
+| Variable | Pflicht | Bedeutung |
+|---|---|---|
+| `page_title` | ja | Seitentitel im `<title>` |
+| `content` | ja | Haupt-Inhalt (vom View gerendert) |
+| `portal` | faktisch ja | `'kunde'` (Default) oder `'mitarbeiter'` -- steuert Header und Login-Modal |
+| `page_header` | nein | HTML des Seitentitel-Blocks |
+| `toolbar` | nein | HTML der Toolbar |
+| `pager` | nein | HTML des Pagers |
 
 ### Zonen
 
@@ -992,13 +1284,26 @@ define('APP_NAME', 'RATIOonline');   // App-Name in Header und Footer -- anpasse
 ```
 
 Es gibt keine eigene Login-Seite und kein `renderPage()`.
-Das Login laeuft ueber ein Bootstrap-Modal das auf jeder Seite verfuegbar ist.
+Das Login laeuft ueber ein Bootstrap-Modal -- verfuegbar auf jeder Seite des
+Mitarbeiterportals, im Kundenportal gar nicht.
 
-// Mit Toolbar (Filter + Aktionen):
-$toolbar = '...HTML...';
+Toolbar und Pager sind optionale Layout-Zonen und werden als fertiges HTML
+an `render()` uebergeben:
 
-// Mit Pager:
-$pager = '...HTML...';
+```php
+// Ohne Toolbar und Pager -- Startseite, Detailansicht
+$this->render('home/index', [
+    'page_title' => 'Kundenportal',
+    'portal'     => 'kunde',
+]);
+
+// Mit Toolbar (Filter + Aktionen) und Pager
+$this->render('adressen/index', [
+    'page_title' => 'Adressen',
+    'portal'     => 'mitarbeiter',
+    'toolbar'    => '...HTML...',
+    'pager'      => '...HTML...',
+]);
 ```
 
 ### Toolbar-Struktur
@@ -1071,6 +1376,8 @@ sobald ein Baustein in mehr als einem View benoetigt wird -- ohne Rueckfrage.
 
 **Beim ersten Anlegen:** `core/Router.php` wird 1:1 aus
 `ClaudeCodePatterns/router-implementation.php` kopiert -- nie neu generiert.
+Einzige Abweichung im laufenden Projekt: das Ziel des Auth-Redirects
+(`/mitarbeiter?login=1`) -- siehe Abschnitt Router Auth-Check.
 
 Der Router laedt beide Routen-Dateien -- Standard zuerst, dann Custom:
 ```php
@@ -1091,19 +1398,26 @@ $router->add(string $path, string $controller, string $action, array $options = 
 `$options['auth']` -- Default: `true`.
 
 ```php
+// Kundenportal -- oeffentlicher Default-Einstieg
+$router->add('/', 'Standard\Controllers\HomeController', 'index', ['auth' => false]);
+$router->add('/registrieren', 'Standard\Controllers\RegistrierungController', 'index', ['auth' => false]);
+
+// Mitarbeiterportal -- Einstieg per URL, kein auth-Check, Login laeuft per Modal
+$router->add('/mitarbeiter', 'Standard\Controllers\HomeController', 'mitarbeiter', ['auth' => false]);
+
 // Gastseiten
 $router->add('/login',  'Standard\Controllers\AuthController', 'login',  ['auth' => false]);
 $router->add('/logout', 'Standard\Controllers\AuthController', 'logout', ['auth' => false]);
 
-// Oeffentliche Startseite -- kein auth-Check, Login laeuft per Modal
-$router->add('/', 'Standard\Controllers\HomeController', 'index', ['auth' => false]);
-
-// Geschuetzte Seiten (Default)
+// Geschuetzte Seiten (Default) -- gehoeren immer zum Mitarbeiterportal
 $router->add('/adressen', 'Standard\Controllers\AdressenController', 'index');
 ```
 
 `['auth' => false]` nur setzen wenn der Prompt explizit "ohne Login", "Gastseite"
 oder "oeffentlich" erwaehnt.
+
+`config/routes.php` ist nach Portalen gruppiert -- neue Routen in den passenden
+Block einsortieren, nicht einfach unten anhaengen.
 
 ---
 
@@ -1114,7 +1428,7 @@ oder "oeffentlich" erwaehnt.
 | `core/` | wird ersetzt |
 | `standard/` | wird ersetzt |
 | `views/components/` | wird ersetzt |
-| `views/layout.php` | wird ersetzt |
+| `views/layout.php` | wird ersetzt -- Portal-Anpassungen danach erneut einarbeiten (siehe Abschnitt Layout) |
 | `custom/` | bleibt unangetastet |
 | `config/routes.custom.php` | bleibt unangetastet |
 | `ClaudeCodePatterns/` | bleibt unangetastet |
@@ -1206,6 +1520,8 @@ RewriteRule ^(.*)$ index.php [QSA,L]
 | "Seite mit Tabelle und Pagination" | View mit Tabelle + Pagination-Komponente |
 | "Formular" oder "Eingabemaske" | View mit `<form>`-Elementen |
 | "Komponente" | Wiederverwendbarer Baustein in `views/components/` |
+| "Kundenportal" | Oeffentlicher Bereich unter `/` -- `'portal' => 'kunde'`, kein Login |
+| "Mitarbeiterportal" | Interner Bereich unter `/mitarbeiter` -- `'portal' => 'mitarbeiter'`, Login per Modal |
 
 Kein `<form>` anlegen ausser der Prompt enthaelt explizit "Formular" oder "Eingabemaske".
 Keine Pagination anlegen ausser der Prompt enthaelt explizit "Pagination" oder "Blaettern".
@@ -1279,5 +1595,16 @@ Der goldene Header-Hintergrund kommt automatisch aus `app.css` -- kein style auf
 - Kein `required` Attribut auf dem Passwort-Feld im Login-Modal -- Validierung erfolgt serverseitig durch RATIOserver
 - Token IMMER aus `$_COOKIE['jwt_token']` lesen -- niemals aus `$_SESSION`
 - `\api_post()` in Controllern immer mit fuehrendem Backslash
+- Jeder `render()`-Aufruf gibt `'portal' => 'kunde'` oder `'portal' => 'mitarbeiter'` mit
+- Navigation nur in `views/components/header.php` aendern -- nie im Layout, nie in einem View
+- Header verlinkt keine Features -- neue Module bekommen eine Kachel auf der Portal-Startseite
+- Kein Link, Button oder Hinweis der vom Kundenportal ins Mitarbeiterportal fuehrt
+- Router-Auth-Redirect (geschuetzte Routen) immer auf `/mitarbeiter?login=1` --
+  niemals auf `/` oder `/login`. Geschuetzte Routen gehoeren zum Mitarbeiterportal.
+  Sollen Kunden einmal geschuetzte Seiten bekommen, braucht die Route eine
+  Portalangabe -- der Router kennt sie heute nicht.
+- Login-/Logout-Redirects richten sich nach dem Feld `portal` aus der Whitelist
+  in `AuthController::PORTAL_ZIELE`
+- Jeder Logout-Link enthaelt `?portal=kunde` bzw. `?portal=mitarbeiter`
 - Keine JavaScript-Standard-Dialoge (`alert()`, `confirm()`, `prompt()`) --
   immer als wiederverwendbare Bootstrap-Modal-Komponente in `views/components/`

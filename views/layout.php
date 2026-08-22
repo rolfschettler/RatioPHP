@@ -8,10 +8,17 @@
  * Variablen:
  *   $page_title  string  -- Seitentitel (required)
  *   $content     string  -- Haupt-Inhalt (required)
+ *   $portal      string  -- 'kunde' (Default) oder 'mitarbeiter' (optional)
  *   $toolbar     string  -- HTML der Toolbar, leer = keine Toolbar (optional)
  *   $pager       string  -- HTML des Pagers, leer = kein Pager (optional)
  *   $page_header string  -- HTML des Seitentitels, leer = kein Page-Header (optional)
+ *
+ * Header und Login-Modal sind portalabhaengig -- das Kundenportal hat
+ * keinen Login-Bereich.
  */
+
+$portal = $portal ?? 'kunde';
+$istMitarbeiter = ($portal === 'mitarbeiter');
 ?>
 <!DOCTYPE html>
 <html lang="de">
@@ -26,51 +33,8 @@
 <body>
 <div class="app-wrapper">
 
-    <!-- HEADER -->
-    <nav class="navbar navbar-expand-lg app-header px-3">
-        <a class="navbar-brand" href="<?= APP_BASE ?>/">
-            <i class="bi bi-grid-3x3-gap-fill"></i>
-            <?= htmlspecialchars(APP_NAME) ?>
-        </a>
-        <button class="navbar-toggler ms-auto" type="button"
-                data-bs-toggle="collapse" data-bs-target="#navMain">
-            <span class="navbar-toggler-icon"></span>
-        </button>
-        <div class="collapse navbar-collapse" id="navMain">
-            <ul class="navbar-nav me-auto">
-                <li class="nav-item">
-                    <a class="nav-link" href="<?= APP_BASE ?>/">
-                        <i class="bi bi-house me-1"></i>Start
-                    </a>
-                </li>
-            </ul>
-            <ul class="navbar-nav ms-auto">
-                <?php if (!empty($_COOKIE['jwt_token'])): ?>
-                <li class="nav-item dropdown">
-                    <a class="nav-link dropdown-toggle" href="#"
-                       role="button" data-bs-toggle="dropdown">
-                        <i class="bi bi-person-circle me-1"></i>
-                        <?= htmlspecialchars($_COOKIE['jwt_user'] ?? '') ?>
-                    </a>
-                    <ul class="dropdown-menu dropdown-menu-end">
-                        <li>
-                            <a class="dropdown-item" href="<?= APP_BASE ?>/logout">
-                                <i class="bi bi-box-arrow-right me-2"></i>Abmelden
-                            </a>
-                        </li>
-                    </ul>
-                </li>
-                <?php else: ?>
-                <li class="nav-item">
-                    <a class="nav-link" href="#"
-                       data-bs-toggle="modal" data-bs-target="#loginModal">
-                        <i class="bi bi-person me-1"></i>Anmelden
-                    </a>
-                </li>
-                <?php endif; ?>
-            </ul>
-        </div>
-    </nav>
+    <!-- HEADER -- portalabhaengige Navigation -->
+    <?php include VIEW_PATH . '/components/header.php'; ?>
 
     <!-- ALLES OBERHALB DER TABELLE IN EINEM BLOCK -->
     <!-- Kein Border zwischen diesen Elementen -- verhindert Scroll-Luecke -->
@@ -119,16 +83,21 @@
                onclick="document.getElementById('mainContent').scrollTop=0;return false;">
                 <i class="bi bi-arrow-up-circle me-1"></i>Nach oben
             </a>
+            <?php // Benutzername im Footer -- in beiden Portalen, sobald angemeldet ?>
+            <?php if (!empty($_COOKIE['jwt_user'])): ?>
             <span style="color:#aaa;">|</span>
             <span style="color:#888;font-size:.8rem;">
                 <i class="bi bi-person me-1"></i>
-                <?= htmlspecialchars($_COOKIE['jwt_user'] ?? '') ?>
+                <?= htmlspecialchars($_COOKIE['jwt_user']) ?>
             </span>
+            <?php endif; ?>
         </div>
     </footer>
 
 </div>
 
+<?php // Login-Modal in BEIDEN Portalen -- das Modal wertet $portal selbst aus
+      // und setzt daraus das Weiterleitungsziel sowie den Registrierungs-Link. ?>
 <?php include VIEW_PATH . '/components/login-modal.php'; ?>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>

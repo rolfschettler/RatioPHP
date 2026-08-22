@@ -22,6 +22,12 @@ define('APP_NAME', 'RATIOonline');
 // Entwicklung: true -- Produktion: false
 define('DEBUG', true);
 
+// Rate-Limiting der Registrierung. Zum Testen auf false setzen -- dann zaehlt
+// kein Versuch und keine Grenze greift.
+// Sicherung: false wirkt NUR zusammen mit DEBUG = true. Ein vergessenes false
+// kann die Produktion also nicht schwaechen, solange DEBUG dort false ist.
+define('RATE_LIMIT_AKTIV', true);
+
 // BASE_URL: IMMER dynamisch -- niemals hardcodieren
 // $scheme erkennt HTTP und HTTPS automatisch
 // HTTP_HOST enthaelt Host UND Port (z.B. localhost:8080)

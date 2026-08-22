@@ -5,14 +5,22 @@
 //
 // - action: POST /login (kein GET /login)
 // - Felder: user, password (kein required auf password -- Validierung serverseitig)
+// - verstecktes Feld portal: sagt dem AuthController, wohin nach dem Login
+//   weitergeleitet wird. Wird dort gegen eine Whitelist geprueft.
 // - Fehlermeldung wird direkt im Modal angezeigt
 // - Oeffnet sich automatisch wenn URL-Parameter ?login=1 gesetzt ist
+//
+// Wird in BEIDEN Portalen eingebunden. Der Registrierungs-Link im Fuss zeigt
+// auf die Registrierung des jeweiligen Portals.
 
 $login_error = '';
 if (!empty($_SESSION['flash_error']) && !empty($_GET['login'])) {
     $login_error = $_SESSION['flash_error'];
     unset($_SESSION['flash_error']);
 }
+
+$modalPortal    = ($portal ?? 'kunde') === 'mitarbeiter' ? 'mitarbeiter' : 'kunde';
+$registrierLink = $modalPortal === 'mitarbeiter' ? '/mitarbeiter/registrieren' : '/registrieren';
 ?>
 <div class="modal fade" id="loginModal" tabindex="-1" aria-labelledby="loginModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
@@ -39,6 +47,14 @@ if (!empty($_SESSION['flash_error']) && !empty($_GET['login'])) {
                         <label for="loginPassword" class="form-label">Passwort</label>
                         <input type="password" class="form-control" id="loginPassword" name="password">
                     </div>
+                    <!-- Ziel nach dem Login -- im AuthController gegen Whitelist geprueft -->
+                    <input type="hidden" name="portal" value="<?= htmlspecialchars($modalPortal, ENT_QUOTES) ?>">
+                    <p class="small text-muted mb-0">
+                        Noch kein Zugang?
+                        <a href="<?= APP_BASE . $registrierLink ?>" style="color:var(--primary-color-dark);">
+                            Jetzt registrieren
+                        </a>
+                    </p>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">
