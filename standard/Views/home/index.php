@@ -3,9 +3,17 @@
 // Kundenportal -- oeffentlicher Einstieg: Registrierung und Anmeldung.
 // Kein Verweis auf das Mitarbeiterportal.
 // Reiner Content-HTML -- kein DOCTYPE, kein Layout-Include.
+//
+// Der Registrierungspfad kommt aus core/Portal.php -- hier steht kein
+// Portalpfad ausgeschrieben.
+
+use Core\Portal;
 
 $eingeloggt = !empty($_COOKIE['jwt_token']);
 $benutzer   = $_COOKIE['jwt_user'] ?? '';
+
+$registrierLink = Portal::registrierung($portal ?? Portal::DEFAULT);
+$demoLink       = Portal::praefix($portal ?? Portal::DEFAULT) . '/demo';
 ?>
 <div class="px-3 py-5 py-lg-6">
     <div class="container">
@@ -33,6 +41,25 @@ $benutzer   = $_COOKIE['jwt_user'] ?? '';
                         <i class="bi bi-box-arrow-right me-1"></i>Abmelden
                     </a>
 
+                    <?php // Testseite -- nur fuer Angemeldete sichtbar, damit sie
+                          // externen Besuchern nicht angeboten wird. Faellt mit der
+                          // Route /kunde/demo weg. ?>
+                    <h2 class="h6 fw-bold text-uppercase text-muted mt-5 mb-3" style="letter-spacing:.06em;">
+                        Testseite
+                    </h2>
+                    <div class="row g-3 text-start justify-content-center">
+                        <div class="col-12 col-md-6">
+                            <a href="<?= APP_BASE . $demoLink ?>" class="text-decoration-none d-block p-3 h-100 rounded"
+                               style="background:var(--surface-muted);border:1px solid var(--border-color);color:inherit;">
+                                <i class="bi bi-emoji-smile mb-2" style="font-size:1.6rem;color:var(--primary-color-dark);"></i>
+                                <h3 class="h6 fw-bold mb-1" style="color:var(--text-color);">Hallo Welt</h3>
+                                <p class="small text-muted mb-0">
+                                    Gesch&uuml;tzte Testseite &ndash; zeigt Portal und Token-Kontext.
+                                </p>
+                            </a>
+                        </div>
+                    </div>
+
                 <?php else: ?>
 
                     <p class="lead text-muted mb-4">
@@ -41,7 +68,7 @@ $benutzer   = $_COOKIE['jwt_user'] ?? '';
                     </p>
 
                     <div class="d-flex flex-column flex-sm-row gap-2 justify-content-center">
-                        <a href="<?= APP_BASE ?>/registrieren" class="btn btn-lg fw-semibold btn-app-primary">
+                        <a href="<?= APP_BASE . $registrierLink ?>" class="btn btn-lg fw-semibold btn-app-primary">
                             <i class="bi bi-person-plus me-1"></i>Jetzt registrieren
                         </a>
                         <button type="button" class="btn btn-lg fw-semibold btn-outline-secondary"

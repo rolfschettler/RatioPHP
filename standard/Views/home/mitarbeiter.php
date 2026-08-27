@@ -3,9 +3,17 @@
 // Mitarbeiterportal -- Login per Modal, danach Modulauswahl.
 // Nur direkt per URL /mitarbeiter erreichbar.
 // Reiner Content-HTML -- kein DOCTYPE, kein Layout-Include.
+//
+// Modul-Links werden aus dem Portal-Praefix gebaut (core/Portal.php) -- kein
+// Portalpfad wird hier ausgeschrieben.
+
+use Core\Portal;
 
 $eingeloggt = !empty($_COOKIE['jwt_token']);
 $benutzer   = $_COOKIE['jwt_user'] ?? '';
+
+$modulBasis     = Portal::praefix($portal ?? 'mitarbeiter');
+$registrierLink = Portal::registrierung($portal ?? 'mitarbeiter');
 ?>
 <div class="px-3 py-5 py-lg-6">
     <div class="container">
@@ -38,7 +46,7 @@ $benutzer   = $_COOKIE['jwt_user'] ?? '';
                     <h2 class="h6 fw-bold text-uppercase text-muted mt-5 mb-3" style="letter-spacing:.06em;">Module</h2>
                     <div class="row g-3 text-start">
                         <div class="col-12 col-md-6 col-lg-4">
-                            <a href="<?= APP_BASE ?>/einsatz" class="text-decoration-none d-block p-3 h-100 rounded"
+                            <a href="<?= APP_BASE . $modulBasis ?>/einsatz" class="text-decoration-none d-block p-3 h-100 rounded"
                                style="background:var(--surface-muted);border:1px solid var(--border-color);color:inherit;">
                                 <i class="bi bi-truck mb-2" style="font-size:1.6rem;color:var(--primary-color-dark);"></i>
                                 <h3 class="h6 fw-bold mb-1" style="color:var(--text-color);">Eins&auml;tze</h3>
@@ -46,7 +54,7 @@ $benutzer   = $_COOKIE['jwt_user'] ?? '';
                             </a>
                         </div>
                         <div class="col-12 col-md-6 col-lg-4">
-                            <a href="<?= APP_BASE ?>/anmietimport" class="text-decoration-none d-block p-3 h-100 rounded"
+                            <a href="<?= APP_BASE . $modulBasis ?>/anmietimport" class="text-decoration-none d-block p-3 h-100 rounded"
                                style="background:var(--surface-muted);border:1px solid var(--border-color);color:inherit;">
                                 <i class="bi bi-upload mb-2" style="font-size:1.6rem;color:var(--primary-color-dark);"></i>
                                 <h3 class="h6 fw-bold mb-1" style="color:var(--text-color);">Anmietimport</h3>
@@ -68,7 +76,7 @@ $benutzer   = $_COOKIE['jwt_user'] ?? '';
 
                     <p class="text-muted mt-4 mb-0">
                         Noch kein Portalzugang?
-                        <a href="<?= APP_BASE ?>/mitarbeiter/registrieren"
+                        <a href="<?= APP_BASE . $registrierLink ?>"
                            style="color:var(--primary-color-dark);">
                             <i class="bi bi-person-badge me-1"></i>Als Mitarbeiter registrieren
                         </a>

@@ -4,7 +4,7 @@
  *
  * Selbstregistrierung in der Tabelle REGISTRIERUNG -- fuer beide Portale:
  *
- *   Kundenportal        /registrieren              typ = 'kunde'
+ *   Kundenportal        /kunde/registrieren        typ = 'kunde'
  *                                                  oeffentlich, jeder darf
  *   Mitarbeiterportal   /mitarbeiter/registrieren  typ = 'mitarbeiter'
  *                                                  nur wer in USERS existiert
@@ -133,6 +133,7 @@ namespace Standard\Controllers;
 
 use Core\BaseController;
 use Core\Codec;
+use Core\Portal;
 
 class RegistrierungController extends BaseController
 {
@@ -148,45 +149,101 @@ class RegistrierungController extends BaseController
     private const MAX_LOGINNAME = 20;
 
     /**
-     * Die beiden Portalvarianten. Alles was sich zwischen Kunden- und
-     * Mitarbeiterregistrierung unterscheidet, steht hier -- und nur hier.
+     * Maximale Laenge von USERS.passwort (ftstring 20). Ein laengeres Passwort
+     * kann in USERS gar nicht stehen -- die Pruefung wuerde ohnehin scheitern.
+     */
+    private const MAX_USERS_PASSWORT = 20;
+
+    /**
+     * Obergrenze fuer das selbst gewaehlte Portalpasswort -- in BYTES.
+     * Bcrypt (PASSWORD_DEFAULT) verarbeitet nur die ersten 72 Bytes und
+     * ignoriert alles danach stillschweigend. Ohne Grenze koennte sich jemand
+     * mit einem 200 Zeichen langen Passwort registrieren und sich danach mit
+     * den ersten 72 Zeichen anmelden. Lieber ablehnen als still abschneiden.
+     * Die Zielspalte REGISTRIERUNG.pwd2 (255) ist dabei unkritisch -- dort
+     * landet nur der 60 Zeichen lange Hash.
+     */
+    private const MAX_PASSWORT_BYTES = 72;
+
+    /**
+     * Die Portalvarianten. Alles was sich zwischen den Registrierungen
+     * unterscheidet, steht hier -- und nur hier. Eine vierte Variante ist ein
+     * weiterer Eintrag, kein zweites Formular: kopierte Formulare driften mit
+     * der Zeit auseinander.
+     *
+     * Die Schalter im Einzelnen:
+     *   userspruefung    Identitaetsnachweis in PHP gegen USERS
+     *                    (pruefeMitarbeiter). Nur das Mitarbeiterportal.
+     *   adressdaten      Anrede, Anschrift, Telefon und Kundennummer abfragen.
+     *                    Nur typ=kunde -- nur dort legt der Endpunkt eine
+     *                    Adresse an, bei jedem anderen typ verwirft er sie.
+     *   namensfelder     name1 (Vorname) und name2 (Nachname) abfragen.
+     *                    Bei typ=kunde Teil der Adresse, bei typ=fahrer der
+     *                    Abgleich mit dem PERSONALSTAMM.
+     *   eigenes_passwort Portalpasswort mit Wiederholung abfragen. Im
+     *                    Mitarbeiterportal nicht: dort IST das gepruefte
+     *                    USERS-Passwort das Portalpasswort.
+     *   live_pruefung    Verfuegbarkeit des Benutzernamens schon waehrend der
+     *                    Eingabe per fetch pruefen.
+     *   username_aus     Woraus REGISTRIERUNG.username entsteht:
+     *                    'email'     -- eingegebene E-Mail-Adresse (Kunde)
+     *                    'loginname' -- USERS-Loginname (Mitarbeiter)
+     *                    'zeichen'   -- Personalstamm-Kuerzel (Fahrer),
+     *                                   wird grossgeschrieben gespeichert
+     *
+     * Startseite, Portal-Label und der Pfad des Formulars kommen aus
+     * core/Portal.php -- sie stehen bewusst nicht noch einmal hier.
      */
     private const PORTALE = [
         'kunde' => [
-            'portal'        => 'kunde',
-            'typ'           => 'kunde',
-            'titel'         => 'Registrieren',
-            'untertitel'    => 'Legen Sie ein neues Konto an.',
-            'formular'      => '/registrieren',
-            'aktion'        => '/registrieren/absenden',
-            'nach_erfolg'   => '/',
-            'zurueck'       => '/',
-            'zurueck_text'  => 'Zurück zur Startseite',
-            'userspruefung' => false,
-            'adressdaten'   => true,
-            // Woraus REGISTRIERUNG.username entsteht -- 'email' fragt eine
-            // E-Mail-Adresse ab, 'loginname' uebernimmt den USERS-Loginnamen.
-            'username_aus'  => 'email',
-            'dublette'      => 'Diese E-Mail-Adresse ist bereits registriert.',
+            'portal'           => 'kunde',
+            'typ'              => 'kunde',
+            'titel'            => 'Registrieren',
+            'untertitel'       => 'Legen Sie ein neues Konto an.',
+            'zurueck_text'     => 'Zurück zur Startseite',
+            'userspruefung'    => false,
+            'adressdaten'      => true,
+            'namensfelder'     => true,
+            'eigenes_passwort' => true,
+            'live_pruefung'    => true,
+            'username_aus'     => 'email',
+            'dublette'         => 'Diese E-Mail-Adresse ist bereits registriert.',
         ],
         'mitarbeiter' => [
-            'portal'        => 'mitarbeiter',
-            'typ'           => 'mitarbeiter',
-            'titel'         => 'Mitarbeiter registrieren',
-            'untertitel'    => 'Legen Sie Ihren Portalzugang an.',
-            'formular'      => '/mitarbeiter/registrieren',
-            'aktion'        => '/mitarbeiter/registrieren/absenden',
-            'nach_erfolg'   => '/mitarbeiter',
-            'zurueck'       => '/mitarbeiter',
-            'zurueck_text'  => 'Zurück zum Mitarbeiterportal',
-            'userspruefung' => true,
-            'adressdaten'   => false,
+            'portal'           => 'mitarbeiter',
+            'typ'              => 'mitarbeiter',
+            'titel'            => 'Mitarbeiter registrieren',
+            'untertitel'       => 'Legen Sie Ihren Portalzugang an.',
+            'zurueck_text'     => 'Zurück zum Mitarbeiterportal',
+            'userspruefung'    => true,
+            'adressdaten'      => false,
+            'namensfelder'     => false,
+            'eigenes_passwort' => false,
+            'live_pruefung'    => false,
             // Der Mitarbeiter meldet sich am Portal mit seinem USERS-Loginnamen
             // an -- eine E-Mail-Adresse wird nicht abgefragt: REGISTRIERUNG hat
             // kein E-Mail-Feld, und ohne Adresse gibt es auch kein
             // ADRESSEN.email, in dem sie landen koennte.
-            'username_aus'  => 'loginname',
-            'dublette'      => 'Für diesen Loginnamen ist bereits ein Portalzugang angelegt.',
+            'username_aus'     => 'loginname',
+            'dublette'         => 'Für diesen Loginnamen ist bereits ein Portalzugang angelegt.',
+        ],
+        'fahrer' => [
+            'portal'           => 'fahrer',
+            'typ'              => 'fahrer',
+            'titel'            => 'Fahrer registrieren',
+            'untertitel'       => 'Legen Sie Ihren Portalzugang an.',
+            'zurueck_text'     => 'Zurück zum Fahrerportal',
+            // Kein USERS-Nachweis in PHP: den Abgleich macht der Endpunkt
+            // selbst gegen den PERSONALSTAMM (zeichen + name1 + name2).
+            'userspruefung'    => false,
+            'adressdaten'      => false,
+            'namensfelder'     => true,
+            'eigenes_passwort' => true,
+            // Bewusst aus: eine Live-Pruefung wuerde oeffentlich verraten,
+            // welche Fahrerkuerzel bereits einen Zugang haben.
+            'live_pruefung'    => false,
+            'username_aus'     => 'zeichen',
+            'dublette'         => 'Für dieses Fahrerkürzel ist bereits ein Portalzugang angelegt.',
         ],
     ];
 
@@ -207,6 +264,14 @@ class RegistrierungController extends BaseController
         'telefon1' => 25,
         'username' => 60,
     ];
+
+    /**
+     * Maximale Laenge von PERSONALSTAMM.zeichen (ftstring 15) -- der
+     * Benutzername im Fahrerportal. Laut Header von /dispo/getpersonalstamm;
+     * name1 und name2 sind dort ebenfalls 30 Zeichen, decken sich also mit
+     * MAX_LAENGE.
+     */
+    private const MAX_ZEICHEN = 15;
 
     /** Groesstmoeglicher Wert fuer ADRESSEN.kennziffer (ftinteger). */
     private const MAX_KENNZIFFER = 2147483647;
@@ -234,13 +299,13 @@ class RegistrierungController extends BaseController
     // Actions
     // ------------------------------------------------------------------
 
-    /** GET /registrieren -- leeres Formular, Kundenportal. */
+    /** GET /kunde/registrieren -- leeres Formular, Kundenportal. */
     public function index(): void
     {
         $this->zeigeFormular('kunde');
     }
 
-    /** POST /registrieren/absenden -- Kundenportal. */
+    /** POST /kunde/registrieren/absenden -- Kundenportal. */
     public function speichern(): void
     {
         $this->verarbeite('kunde');
@@ -256,6 +321,18 @@ class RegistrierungController extends BaseController
     public function mitarbeiterSpeichern(): void
     {
         $this->verarbeite('mitarbeiter');
+    }
+
+    /** GET /fahrer/registrieren -- leeres Formular, Fahrerportal. */
+    public function fahrer(): void
+    {
+        $this->zeigeFormular('fahrer');
+    }
+
+    /** POST /fahrer/registrieren/absenden -- Fahrerportal. */
+    public function fahrerSpeichern(): void
+    {
+        $this->verarbeite('fahrer');
     }
 
     // ------------------------------------------------------------------
@@ -278,7 +355,7 @@ class RegistrierungController extends BaseController
         $konfig = self::PORTALE[$variante];
 
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-            $this->redirect($konfig['formular']);
+            $this->redirect(Portal::registrierung($konfig['portal']));
             return;
         }
 
@@ -288,7 +365,7 @@ class RegistrierungController extends BaseController
         // vortaeuschen (verraet dem Bot nicht, woran es lag).
         if ($honeypot !== '') {
             $this->flashSuccess('Registrierung erfolgreich.');
-            $this->redirect($konfig['nach_erfolg']);
+            $this->redirect(Portal::start($konfig['portal']));
             return;
         }
 
@@ -337,9 +414,28 @@ class RegistrierungController extends BaseController
         // Kundenportal: die eingegebene E-Mail-Adresse.
         // Mitarbeiterportal: der USERS-Loginname -- er ist oben schon geprueft
         // (vorhanden, maximal MAX_LOGINNAME Zeichen, Passwort passt).
+        // Fahrerportal: das Personalstamm-Kuerzel (PERSONALSTAMM.zeichen).
 
         if ($konfig['username_aus'] === 'loginname') {
             $benutzername = $eingaben['loginname'];
+        } elseif ($konfig['username_aus'] === 'zeichen') {
+            // Grossschreibung wie im PERSONALSTAMM -- der Endpunkt normalisiert
+            // ebenso und speichert den Login gross. Der spaetere Anmeldevergleich
+            // laeuft ohnehin per UPPER() auf beiden Seiten.
+            $benutzername = mb_strtoupper($eingaben['username']);
+
+            if ($benutzername === '') {
+                $this->zeigeMitFehler('Bitte Ihr Fahrerkürzel angeben.', $eingaben, $variante);
+                return;
+            }
+            if (mb_strlen($benutzername) > self::MAX_ZEICHEN) {
+                $this->zeigeMitFehler(
+                    'Fahrerkürzel: maximal ' . self::MAX_ZEICHEN . ' Zeichen.',
+                    $eingaben,
+                    $variante
+                );
+                return;
+            }
         } else {
             $benutzername = $eingaben['username'];
 
@@ -357,25 +453,79 @@ class RegistrierungController extends BaseController
             }
         }
 
-        // --- Adress- und Passwortfelder -- nur wo eine Adresse entsteht -----
-        // Bei typ != 'kunde' legt der Endpunkt keine Adresse an und ignoriert
-        // anrede/name1/name2/kennziffer. Diese Felder werden dann gar nicht
-        // erst abgefragt, also auch nicht geprueft.
+        // --- Vor- und Nachname ----------------------------------------------
+        // Kundenportal: Pflichtfelder der Adresse (typ=kunde).
+        // Fahrerportal: Pflichtfelder des PERSONALSTAMM-Abgleichs (typ=fahrer)
+        //   -- der Endpunkt lehnt leere Werte in beiden Faellen ab.
+        // Mitarbeiterportal: wird gar nicht erst abgefragt.
 
-        if ($konfig['adressdaten']) {
-            if (!in_array($eingaben['anrede'], self::ANREDEN, true)) {
-                $this->zeigeMitFehler('Bitte eine Anrede auswählen.', $eingaben, $variante);
-                return;
-            }
-
-            // name1 und name2 sind bei typ=kunde Pflicht -- der Endpunkt
-            // lehnt leere Werte ab.
+        if ($konfig['namensfelder']) {
             if ($eingaben['name1'] === '') {
                 $this->zeigeMitFehler('Bitte einen Vornamen angeben.', $eingaben, $variante);
                 return;
             }
             if ($eingaben['name2'] === '') {
-                $this->zeigeMitFehler('Bitte einen Nachnamen bzw. Firmennamen angeben.', $eingaben, $variante);
+                $this->zeigeMitFehler(
+                    $konfig['adressdaten']
+                        ? 'Bitte einen Nachnamen bzw. Firmennamen angeben.'
+                        : 'Bitte einen Nachnamen angeben.',
+                    $eingaben,
+                    $variante
+                );
+                return;
+            }
+
+            foreach (['name1', 'name2'] as $feld) {
+                if (mb_strlen($eingaben[$feld]) > self::MAX_LAENGE[$feld]) {
+                    $this->zeigeMitFehler(
+                        self::BEZEICHNUNG[$feld] . ': maximal ' . self::MAX_LAENGE[$feld] . ' Zeichen.',
+                        $eingaben,
+                        $variante
+                    );
+                    return;
+                }
+            }
+        }
+
+        // --- Eigenes Portalpasswort -----------------------------------------
+        // Ueberall dort, wo der Nutzer sein Passwort selbst waehlt. Im
+        // Mitarbeiterportal nicht: dort ist das oben gegen USERS gepruefte
+        // Passwort gleichzeitig das Portalpasswort.
+
+        if ($konfig['eigenes_passwort']) {
+            if (strlen($passwort) < self::MIN_PASSWORT_LAENGE) {
+                $this->zeigeMitFehler(
+                    'Das Passwort muss mindestens ' . self::MIN_PASSWORT_LAENGE . ' Zeichen lang sein.',
+                    $eingaben,
+                    $variante
+                );
+                return;
+            }
+            // Bcrypt-Grenze -- siehe MAX_PASSWORT_BYTES. strlen() zaehlt Bytes,
+            // genau wie bcrypt: ein Umlaut belegt zwei davon.
+            if (strlen($passwort) > self::MAX_PASSWORT_BYTES) {
+                $this->zeigeMitFehler(
+                    'Das Passwort darf höchstens ' . self::MAX_PASSWORT_BYTES
+                    . ' Zeichen lang sein (Umlaute zählen doppelt).',
+                    $eingaben,
+                    $variante
+                );
+                return;
+            }
+            if ($passwort !== $passwortWiederholt) {
+                $this->zeigeMitFehler('Die Passwörter stimmen nicht überein.', $eingaben, $variante);
+                return;
+            }
+        }
+
+        // --- Adressfelder -- nur wo eine Adresse entsteht -------------------
+        // Bei typ != 'kunde' legt der Endpunkt keine Adresse an und ignoriert
+        // anrede/strasse/plz/ort/telefon1/kennziffer. Diese Felder werden dann
+        // gar nicht erst abgefragt, also auch nicht geprueft.
+
+        if ($konfig['adressdaten']) {
+            if (!in_array($eingaben['anrede'], self::ANREDEN, true)) {
+                $this->zeigeMitFehler('Bitte eine Anrede auswählen.', $eingaben, $variante);
                 return;
             }
 
@@ -398,20 +548,6 @@ class RegistrierungController extends BaseController
                     return;
                 }
             }
-
-            // Eigenes Portalpasswort -- nur hier, mit Wiederholung.
-            if (strlen($passwort) < self::MIN_PASSWORT_LAENGE) {
-                $this->zeigeMitFehler(
-                    'Das Passwort muss mindestens ' . self::MIN_PASSWORT_LAENGE . ' Zeichen lang sein.',
-                    $eingaben,
-                    $variante
-                );
-                return;
-            }
-            if ($passwort !== $passwortWiederholt) {
-                $this->zeigeMitFehler('Die Passwörter stimmen nicht überein.', $eingaben, $variante);
-                return;
-            }
         }
 
         // --- Benutzername bereits vergeben? ---------------------------------
@@ -433,7 +569,7 @@ class RegistrierungController extends BaseController
         // Mitarbeiterpasswort aus USERS -- es wurde oben gegen USERS geprueft
         // und wird hier gehasht abgelegt. Ein eigenes Portalpasswort gibt es
         // dort nicht.
-        $klartextPasswort = $konfig['adressdaten'] ? $passwort : $usersPasswort;
+        $klartextPasswort = $konfig['eigenes_passwort'] ? $passwort : $usersPasswort;
 
         $daten = [
             'username' => $benutzername,
@@ -441,15 +577,24 @@ class RegistrierungController extends BaseController
             'typ'      => $konfig['typ'],
         ];
 
-        // Adressfelder nur bei typ=kunde -- bei jedem anderen typ legt der
-        // Endpunkt keine Adresse an und ignoriert sie ohnehin.
+        // name1/name2 gehen bei jeder Variante mit, die sie abfragt -- bei
+        // typ=kunde als Adressdaten, bei typ=fahrer als Suchkriterium fuer den
+        // PERSONALSTAMM-Abgleich (zeichen + name1 + name2). Ohne sie lehnt der
+        // Endpunkt beide Varianten ab.
+        if ($konfig['namensfelder']) {
+            $daten += [
+                'name1' => $eingaben['name1'],
+                'name2' => $eingaben['name2'],
+            ];
+        }
+
+        // Uebrige Adressfelder nur bei typ=kunde -- bei jedem anderen typ legt
+        // der Endpunkt keine Adresse an und ignoriert sie ohnehin.
         // email wird mit dem Benutzernamen befuellt -- der Benutzername IST
         // die E-Mail-Adresse, ein zweites Feld dafuer waere redundant.
         if ($konfig['adressdaten']) {
             $daten += [
                 'anrede'   => $eingaben['anrede'],
-                'name1'    => $eingaben['name1'],
-                'name2'    => $eingaben['name2'],
                 'strasse'  => $eingaben['strasse'],
                 'plz'      => $eingaben['plz'],
                 'ort'      => $eingaben['ort'],
@@ -495,7 +640,7 @@ class RegistrierungController extends BaseController
         // -- die REGISTRIERUNG-Anmeldung ist ein eigenes System, unabhaengig
         // vom JWT-Login dieser App. Nur die Erfolgsmeldung anzeigen.
         $this->flashSuccess('Registrierung erfolgreich.');
-        $this->redirect($konfig['nach_erfolg']);
+        $this->redirect(Portal::start($konfig['portal']));
     }
 
     /**
@@ -535,6 +680,14 @@ class RegistrierungController extends BaseController
         $loginSchluessel = hash('sha256', mb_strtoupper($loginname));
         if ($this->rateLimitUeberschritten($loginSchluessel, 'mitarbeiterlogin_user', self::RATE_LIMIT_MITARB_USER)) {
             return 'Zu viele Versuche für diesen Loginnamen -- bitte später erneut versuchen.';
+        }
+
+        // Laenger als USERS.passwort (ftstring 20) kann kein hinterlegtes
+        // Passwort sein -- der Vergleich weiter unten koennte nie passen.
+        // Bewusst dieselbe neutrale Meldung wie jeder andere Fehlschlag und
+        // bewusst NACH den Zaehlern: das ist ein Fehlversuch wie jeder andere.
+        if (mb_strlen($passwort) > self::MAX_USERS_PASSWORT) {
+            return self::FEHLER_MITARBEITER;
         }
 
         $antwort = \api_post('/users/getuserlocal', ['loginname' => $loginname]);
@@ -582,7 +735,7 @@ class RegistrierungController extends BaseController
     }
 
     /**
-     * POST /registrieren/username-pruefen -- Verfuegbarkeitspruefung fuer das
+     * POST /kunde/registrieren/username-pruefen -- Verfuegbarkeitspruefung fuer
      * Formular, wird per fetch() aufgerufen sobald die E-Mail-Adresse
      * eingegeben ist. Dient beiden Portalen.
      *
@@ -660,6 +813,16 @@ class RegistrierungController extends BaseController
     /**
      * Baut die View-Variablen einer Portalvariante zusammen.
      */
+    /**
+     * Ziel des Formular-Submits: Registrierungspfad des Portals + /absenden.
+     * Ergibt /registrieren/absenden, /mitarbeiter/registrieren/absenden und
+     * /fahrer/registrieren/absenden -- die Routen in config/routes.php.
+     */
+    private function aktionPfad(string $portal): string
+    {
+        return Portal::registrierung($portal) . '/absenden';
+    }
+
     private function viewDaten(string $variante, array $eingaben = []): array
     {
         $konfig = self::PORTALE[$variante];
@@ -669,15 +832,25 @@ class RegistrierungController extends BaseController
             'portal'               => $konfig['portal'],
             'titel'                => $konfig['titel'],
             'untertitel'           => $konfig['untertitel'],
-            'formular_action'      => $konfig['aktion'],
-            'zurueck_link'         => $konfig['zurueck'],
+            'formular_action'      => $this->aktionPfad($konfig['portal']),
+            // Ziel der Live-Verfuegbarkeitspruefung (fetch im View). Liegt wie
+            // das Formular unter dem Registrierungspfad des Portals, damit die
+            // Route zum Portal-Praefix passt.
+            'pruef_url'            => Portal::registrierung($konfig['portal']) . '/username-pruefen',
+            'zurueck_link'         => Portal::start($konfig['portal']),
             'zurueck_text'         => $konfig['zurueck_text'],
             'mitarbeiter_pruefung' => $konfig['userspruefung'],
             'adressdaten'          => $konfig['adressdaten'],
-            'email_feld'           => $konfig['username_aus'] === 'email',
+            'namensfelder'         => $konfig['namensfelder'],
+            'eigenes_passwort'     => $konfig['eigenes_passwort'],
+            'live_pruefung'        => $konfig['live_pruefung'],
+            'username_aus'         => $konfig['username_aus'],
             'anreden'              => self::ANREDEN,
             'max_laenge'           => self::MAX_LAENGE,
             'max_loginname'        => self::MAX_LOGINNAME,
+            'max_zeichen'          => self::MAX_ZEICHEN,
+            'max_users_passwort'   => self::MAX_USERS_PASSWORT,
+            'max_pwd'              => self::MAX_PASSWORT_BYTES,
             'min_pwd'              => self::MIN_PASSWORT_LAENGE,
             'eingaben'             => $eingaben,
         ];

@@ -20,9 +20,16 @@
 namespace Standard\Controllers;
 
 use Core\BaseController;
+use Core\Portal;
 
 class EinsatzController extends BaseController
 {
+    /** Portal des Moduls -- bestimmt Layout, Navigation und Routen-Praefix. */
+    private const PORTAL = 'mitarbeiter';
+
+    /** Pfad des Moduls unterhalb des Portal-Praefix. */
+    private const MODUL = '/einsatz';
+
     /**
      * Maximale Anzahl Einsaetze, die vom Server geholt werden.
      * Es wird bewusst 1 mehr als das Nutz-Maximum (2000) angefordert:
@@ -32,7 +39,7 @@ class EinsatzController extends BaseController
     private const EINSATZ_LIMIT = 20000;
 
     /**
-     * GET /einsatz -- Gefilterte und sortierte Liste der Einsaetze.
+     * GET /mitarbeiter/einsatz -- Gefilterte und sortierte Liste der Einsaetze.
      *
      * Filter-Parameter (GET):
      *   von, bis    Zeitraum (datetime-local) -- filtert der Server
@@ -189,7 +196,9 @@ class EinsatzController extends BaseController
         // 5. Rendern -- Filterwerte fuers Highlighting an den View geben
         $this->render('einsatz/index', [
             'page_title'  => 'Einsatz-Uebersicht',
-            'portal'      => 'mitarbeiter',
+            'portal'      => self::PORTAL,
+            // Basis der Sortier-Links im View -- kein Portalpfad im View
+            'modul_url'   => Portal::praefix(self::PORTAL) . self::MODUL,
             'page_header' => '
                 <h1 class="h5 fw-bold mb-0" style="color:var(--text-color);">Einsatz-&Uuml;bersicht</h1>
                 <span class="badge rounded-pill"
@@ -302,7 +311,7 @@ class EinsatzController extends BaseController
         array $fahrergruppen,
         array $einsatzarten
     ): string {
-        $action   = APP_BASE . '/einsatz';
+        $action   = APP_BASE . Portal::praefix(self::PORTAL) . self::MODUL;
         $vonEsc   = htmlspecialchars($von, ENT_QUOTES);
         $bisEsc   = htmlspecialchars($bis, ENT_QUOTES);
         $checked  = ($timemode !== '') ? 'checked' : '';
@@ -387,17 +396,23 @@ ITEM;
         <label class="filter-label" for="filterBis">Bis</label>
         <input type="date" class="form-control form-control-sm" id="filterBis" name="bis" value="{$bisEsc}">
     </div>
+    <!-- maxlength je Filter aus der Laenge der durchsuchten Spalten:
+         fahrer   -> EINSATZ.fahrer1 (30) oder aufgeloester Name aus
+                     PERSONALSTAMM name1+' '+name2 (30+1+30)
+         fahrzeug -> EINSATZ.fahrzeug (30)
+         begriff  -> EINSATZ.bezeichnung (120) oder dienstnr (10)
+         Reine Anzeigefilter -- laengere Eingaben koennen nie treffen. -->
     <div class="col-12 col-sm-6 col-lg-auto">
         <label class="filter-label" for="filterFahrer">Fahrer</label>
-        <input type="text" class="form-control form-control-sm" id="filterFahrer" name="fahrer" value="{$fahrerV}" placeholder="Fahrer">
+        <input type="text" class="form-control form-control-sm" id="filterFahrer" name="fahrer" value="{$fahrerV}" maxlength="61" placeholder="Fahrer">
     </div>
     <div class="col-12 col-sm-6 col-lg-auto">
         <label class="filter-label" for="filterFahrzeug">Fahrzeug</label>
-        <input type="text" class="form-control form-control-sm" id="filterFahrzeug" name="fahrzeug" value="{$fzV}" placeholder="Fahrzeug">
+        <input type="text" class="form-control form-control-sm" id="filterFahrzeug" name="fahrzeug" value="{$fzV}" maxlength="30" placeholder="Fahrzeug">
     </div>
     <div class="col-12 col-sm-6 col-lg-auto">
         <label class="filter-label" for="filterBegriff">Begriff</label>
-        <input type="text" class="form-control form-control-sm" id="filterBegriff" name="begriff" value="{$begriffV}" placeholder="Bezeichnung / Dienst-Nr.">
+        <input type="text" class="form-control form-control-sm" id="filterBegriff" name="begriff" value="{$begriffV}" maxlength="120" placeholder="Bezeichnung / Dienst-Nr.">
     </div>
     <div class="col-12 col-sm-6 col-lg-auto">
         <label class="filter-label" for="filterGruppe">Gruppe</label>

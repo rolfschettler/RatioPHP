@@ -11,26 +11,46 @@
 //                         Das dort eingegebene Mitarbeiterpasswort ist
 //                         gleichzeitig das Portalpasswort -- kein eigenes
 //                         Passwortfeld, keine Wiederholung.
-//   $adressdaten          true -> Adressfelder und Kundennummer abfragen.
+//   $adressdaten          true -> Anrede, Anschrift, Telefon, Kundennummer.
 //                         Nur bei typ=kunde; bei jedem anderen typ legt der
 //                         Endpunkt keine Adresse an und ignoriert die Felder.
+//   $namensfelder         true -> Vorname und Nachname abfragen.
+//   $eigenes_passwort     true -> Passwort + Wiederholung abfragen.
+//   $username_aus         'email'     -> E-Mail-Feld (Kunde)
+//                         'loginname' -> kein eigenes Feld, kommt aus dem
+//                                        USERS-Block (Mitarbeiter)
+//                         'zeichen'   -> Fahrerkuerzel (Fahrer)
+//   $live_pruefung        true -> Verfuegbarkeit waehrend der Eingabe pruefen.
 //
-// name1 = Vorname, name2 = Nachname bzw. Firma -- bei typ=kunde Pflicht, der
-// Endpunkt lehnt leere Werte ab.
+// name1 = Vorname, name2 = Nachname bzw. Firma. Bei typ=kunde Adressdaten,
+// bei typ=fahrer das Suchkriterium fuer den PERSONALSTAMM -- in beiden Faellen
+// Pflicht, der Endpunkt lehnt leere Werte ab.
 
 $eingaben        = $eingaben        ?? [];
 $anreden         = $anreden         ?? ['Frau', 'Herr', 'Firma', 'Familie'];
 $maxLaenge       = $max_laenge      ?? [];
 $maxLoginname    = $max_loginname   ?? 20;
+$maxZeichen      = $max_zeichen     ?? 15;
+$maxUsersPwd     = $max_users_passwort ?? 20;
+$maxPwd          = $max_pwd         ?? 72;
 $minPwd          = $min_pwd         ?? 6;
 $titelText       = $titel           ?? 'Registrieren';
 $untertitelText  = $untertitel      ?? 'Legen Sie ein neues Konto an.';
-$aktion          = $formular_action ?? '/registrieren/absenden';
+$aktion          = $formular_action ?? '/kunde/registrieren/absenden';
 $zurueckLink     = $zurueck_link    ?? '/';
 $zurueckText     = $zurueck_text    ?? 'Zurück zur Startseite';
 $userspruefung   = !empty($mitarbeiter_pruefung);
 $mitAdresse      = $adressdaten     ?? true;
-$mitEmail        = $email_feld      ?? true;
+$mitNamen        = $namensfelder    ?? true;
+$mitPasswort     = $eigenes_passwort ?? true;
+$livePruefung    = $live_pruefung   ?? true;
+$usernameAus     = $username_aus    ?? 'email';
+$mitEmail        = ($usernameAus === 'email');
+$mitZeichen      = ($usernameAus === 'zeichen');
+// Zugangsdaten-Block: ueberall wo ein eigenes Loginfeld oder ein eigenes
+// Passwort abgefragt wird. Im Mitarbeiterportal entfaellt er -- dort stehen
+// beide Angaben schon im USERS-Block.
+$mitZugangsblock = ($mitEmail || $mitZeichen || $mitPasswort);
 
 /** Gibt einen Eingabewert HTML-sicher zurueck. */
 $wert = static function (string $feld) use ($eingaben): string {
@@ -86,8 +106,10 @@ $maxAttr = static function (string $feld) use ($maxLaenge): string {
                             <label for="regLoginPassword" class="form-label">
                                 Passwort <span class="text-danger">*</span>
                             </label>
+                            <?php // maxlength = USERS.passwort (ftstring 20) -- laenger kann
+                                  // ein hinterlegtes Mitarbeiterpasswort nicht sein ?>
                             <input type="password" class="form-control" id="regLoginPassword" name="login_password"
-                                   autocomplete="off">
+                                   maxlength="<?= (int)$maxUsersPwd ?>" autocomplete="off">
                         </div>
                         <div class="col-12">
                             <div class="form-text">
@@ -97,7 +119,7 @@ $maxAttr = static function (string $feld) use ($maxLaenge): string {
                             </div>
                         </div>
                     </div>
-                    <?php if ($mitAdresse || $mitEmail): ?>
+                    <?php if ($mitAdresse || $mitNamen || $mitZugangsblock): ?>
                     <hr class="my-4" style="border-color:var(--border-color);">
                     <?php endif; ?>
                     <?php endif; ?>
@@ -121,6 +143,9 @@ $maxAttr = static function (string $feld) use ($maxLaenge): string {
                         </div>
                     </div>
 
+                    <?php endif; ?>
+
+                    <?php if ($mitAdresse || $mitNamen): ?>
                     <!-- ---------------------------------------------------- -->
                     <!-- Persoenliche Daten                                   -->
                     <!-- ---------------------------------------------------- -->
@@ -129,6 +154,7 @@ $maxAttr = static function (string $feld) use ($maxLaenge): string {
                     </h2>
 
                     <div class="row g-3">
+                        <?php if ($mitAdresse): ?>
                         <div class="col-12 col-sm-4">
                             <label for="regAnrede" class="form-label">Anrede <span class="text-danger">*</span></label>
                             <select class="form-select" id="regAnrede" name="anrede" required>
@@ -141,20 +167,33 @@ $maxAttr = static function (string $feld) use ($maxLaenge): string {
                                 <?php endforeach; ?>
                             </select>
                         </div>
-                        <div class="col-12 col-sm-4">
+                        <?php endif; ?>
+
+                        <?php if ($mitNamen): ?>
+                        <div class="col-12 <?= $mitAdresse ? 'col-sm-4' : 'col-sm-6' ?>">
                             <label for="regName1" class="form-label">Vorname <span class="text-danger">*</span></label>
                             <input type="text" class="form-control" id="regName1" name="name1"
                                    value="<?= $wert('name1') ?>"<?= $maxAttr('name1') ?> required
                                    <?= $userspruefung ? '' : 'autofocus' ?>>
                         </div>
-                        <div class="col-12 col-sm-4">
+                        <div class="col-12 <?= $mitAdresse ? 'col-sm-4' : 'col-sm-6' ?>">
                             <label for="regName2" class="form-label">
-                                Nachname / Firma <span class="text-danger">*</span>
+                                <?= $mitAdresse ? 'Nachname / Firma' : 'Nachname' ?> <span class="text-danger">*</span>
                             </label>
                             <input type="text" class="form-control" id="regName2" name="name2"
                                    value="<?= $wert('name2') ?>"<?= $maxAttr('name2') ?> required>
                         </div>
+                        <?php if ($mitZeichen): ?>
+                        <div class="col-12">
+                            <div class="form-text">
+                                Vor- und Nachname m&uuml;ssen mit Ihren im Personalstamm hinterlegten
+                                Daten &uuml;bereinstimmen &ndash; sonst k&ouml;nnen wir Sie nicht zuordnen.
+                            </div>
+                        </div>
+                        <?php endif; ?>
+                        <?php endif; ?>
 
+                        <?php if ($mitAdresse): ?>
                         <div class="col-12">
                             <label for="regStrasse" class="form-label">Stra&szlig;e und Hausnummer</label>
                             <input type="text" class="form-control" id="regStrasse" name="strasse"
@@ -175,12 +214,15 @@ $maxAttr = static function (string $feld) use ($maxLaenge): string {
                             <input type="tel" class="form-control" id="regTelefon" name="telefon1"
                                    value="<?= $wert('telefon1') ?>"<?= $maxAttr('telefon1') ?>>
                         </div>
+                        <?php endif; ?>
                     </div>
 
+                    <?php if ($mitZugangsblock): ?>
                     <hr class="my-4" style="border-color:var(--border-color);">
                     <?php endif; ?>
+                    <?php endif; ?>
 
-                    <?php if ($mitEmail): ?>
+                    <?php if ($mitZugangsblock): ?>
                     <!-- ---------------------------------------------------- -->
                     <!-- Zugangsdaten des neuen Portalkontos                  -->
                     <!-- ---------------------------------------------------- -->
@@ -189,6 +231,7 @@ $maxAttr = static function (string $feld) use ($maxLaenge): string {
                     </h2>
 
                     <div class="row g-3">
+                        <?php if ($mitEmail): ?>
                         <div class="col-12">
                             <label for="regUsername" class="form-label">
                                 E-Mail-Adresse <span class="text-danger">*</span>
@@ -197,29 +240,45 @@ $maxAttr = static function (string $feld) use ($maxLaenge): string {
                                    value="<?= $wert('username') ?>"<?= $maxAttr('username') ?>
                                    autocomplete="username" required>
                             <div class="form-text">
-                                <?php if ($mitAdresse): ?>
-                                    Ihre E-Mail-Adresse ist gleichzeitig Ihr Benutzername.
-                                <?php else: ?>
-                                    Damit melden Sie sich k&uuml;nftig am Portal an &ndash; zusammen mit
-                                    Ihrem oben eingegebenen Mitarbeiter-Passwort.
-                                <?php endif; ?>
+                                Ihre E-Mail-Adresse ist gleichzeitig Ihr Benutzername.
                             </div>
                             <!-- Ergebnis der Verfuegbarkeitspruefung (per fetch gefuellt) -->
                             <div id="regUsernameHinweis" class="small mt-1" role="status" aria-live="polite"></div>
                         </div>
-                        <?php if ($mitAdresse): ?>
+                        <?php elseif ($mitZeichen): ?>
+                        <div class="col-12">
+                            <label for="regUsername" class="form-label">
+                                Fahrerk&uuml;rzel <span class="text-danger">*</span>
+                            </label>
+                            <input type="text" class="form-control text-uppercase" id="regUsername" name="username"
+                                   value="<?= $wert('username') ?>" maxlength="<?= (int)$maxZeichen ?>"
+                                   autocomplete="username" autocapitalize="characters" spellcheck="false" required>
+                            <div class="form-text">
+                                Ihr K&uuml;rzel aus dem Personalstamm &ndash; damit melden Sie sich
+                                k&uuml;nftig am Portal an. Gro&szlig;- und Kleinschreibung spielt
+                                keine Rolle.
+                            </div>
+                        </div>
+                        <?php endif; ?>
+                        <?php if ($mitPasswort): ?>
                         <div class="col-12 col-sm-6">
                             <label for="regPassword" class="form-label">Passwort <span class="text-danger">*</span></label>
+                            <?php // maxlength = Bcrypt-Grenze (72 Bytes). Ohne sie wuerde alles
+                                  // darueber hinaus beim Hashen stillschweigend abgeschnitten. ?>
                             <input type="password" class="form-control" id="regPassword" name="password"
-                                   minlength="<?= (int)$minPwd ?>" autocomplete="new-password" required>
-                            <div class="form-text">Mindestens <?= (int)$minPwd ?> Zeichen.</div>
+                                   minlength="<?= (int)$minPwd ?>" maxlength="<?= (int)$maxPwd ?>"
+                                   autocomplete="new-password" required>
+                            <div class="form-text">
+                                Mindestens <?= (int)$minPwd ?>, h&ouml;chstens <?= (int)$maxPwd ?> Zeichen.
+                            </div>
                         </div>
                         <div class="col-12 col-sm-6">
                             <label for="regPasswordWdh" class="form-label">
                                 Passwort wiederholen <span class="text-danger">*</span>
                             </label>
                             <input type="password" class="form-control" id="regPasswordWdh" name="password_wdh"
-                                   minlength="<?= (int)$minPwd ?>" autocomplete="new-password" required>
+                                   minlength="<?= (int)$minPwd ?>" maxlength="<?= (int)$maxPwd ?>"
+                                   autocomplete="new-password" required>
                         </div>
                         <?php endif; ?>
                     </div>
@@ -240,10 +299,10 @@ $maxAttr = static function (string $feld) use ($maxLaenge): string {
     </div>
 </div>
 
-<?php if ($mitEmail): ?>
+<?php if ($livePruefung && $mitEmail): ?>
 <script>
 // Verfuegbarkeitspruefung der E-Mail-Adresse ueber
-// /registrieren/username-pruefen (bedient /registrierung/checkusernamelocal).
+// /kunde/registrieren/username-pruefen (bedient /registrierung/checkusernamelocal).
 // Dieselbe Route fuer beide Portale. Rein informativ -- die verbindliche
 // Pruefung passiert serverseitig beim Absenden. Keine JS-Standard-Dialoge,
 // nur Inline-Hinweis am Feld.
@@ -277,7 +336,7 @@ $maxAttr = static function (string $feld) use ($maxLaenge): string {
         var daten = new URLSearchParams();
         daten.append('username', username);
 
-        fetch('<?= APP_BASE ?>/registrieren/username-pruefen', {
+        fetch('<?= APP_BASE . ($pruef_url ?? '') ?>', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             body: daten.toString()

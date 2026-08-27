@@ -74,7 +74,7 @@
  * Kein Session-Zwischenspeicher (Vorgabe):
  *   hochladen() rendert das Ergebnis (Statuszeilen + nachgeladene ANMIET/
  *   ANMIETPOS-Daten) direkt selbst, statt es in $_SESSION abzulegen und auf
- *   /anmietimport umzuleiten. index() zeigt bei direktem Aufruf nur das
+ *   auf die Moduluebersicht umzuleiten. index() zeigt bei direktem Aufruf nur das
  *   leere Formular. Konsequenz: kein Post-Redirect-Get -- ein Neuladen der
  *   Seite nach einem Upload fragt den Browser-Dialog zum erneuten Absenden
  *   ab. Bewusst in Kauf genommen, da die importierten Datensaetze nirgends
@@ -95,13 +95,20 @@
 namespace Standard\Controllers;
 
 use Core\BaseController;
+use Core\Portal;
 
 class AnmietimportController extends BaseController
 {
     private const UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
 
+    /** Portal des Moduls -- bestimmt Layout, Navigation und Routen-Praefix. */
+    private const PORTAL = 'mitarbeiter';
+
+    /** Pfad des Moduls unterhalb des Portal-Praefix. */
+    private const MODUL = '/anmietimport';
+
     /**
-     * GET /anmietimport -- Upload-Formular, ohne Ergebnis eines frueheren Imports.
+     * GET /mitarbeiter/anmietimport -- Upload-Formular, ohne Ergebnis eines frueheren Imports.
      * Das Ergebnis wird ausschliesslich direkt nach dem Upload angezeigt
      * (siehe hochladen()) -- es wird nirgends zwischengespeichert.
      */
@@ -111,12 +118,22 @@ class AnmietimportController extends BaseController
     }
 
     /**
-     * POST /anmietimport/hochladen -- Datei entgegennehmen, parsen, importieren.
+     * Pfad des Moduls innerhalb der App -- Portal-Praefix aus core/Portal.php
+     * plus Modulpfad. Basis fuer Redirects und die Form-Action.
+     */
+    private function modulUrl(): string
+    {
+        return Portal::praefix(self::PORTAL) . self::MODUL;
+    }
+
+    /**
+     * POST /mitarbeiter/anmietimport/hochladen -- Datei entgegennehmen,
+     * parsen, importieren.
      */
     public function hochladen(): void
     {
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-            $this->redirect('/anmietimport');
+            $this->redirect($this->modulUrl());
             return;
         }
 
@@ -147,12 +164,12 @@ class AnmietimportController extends BaseController
         $file = $_FILES['jsonfile'] ?? null;
         if (empty($file) || $file['error'] !== UPLOAD_ERR_OK) {
             $this->flashError('Keine gültige Datei hochgeladen.');
-            $this->redirect('/anmietimport');
+            $this->redirect($this->modulUrl());
             return;
         }
         if ($file['size'] > self::UPLOAD_MAX_BYTES) {
             $this->flashError('Datei ist zu groß (max. 5 MB).');
-            $this->redirect('/anmietimport');
+            $this->redirect($this->modulUrl());
             return;
         }
 
@@ -160,7 +177,7 @@ class AnmietimportController extends BaseController
 
         if (!is_array($json) || !isset($json['anmiet']) || !is_array($json['anmiet'])) {
             $this->flashError('Ungültiges JSON-Format -- Schlüssel "anmiet" fehlt oder ist kein Array.');
-            $this->redirect('/anmietimport');
+            $this->redirect($this->modulUrl());
             return;
         }
 
@@ -317,11 +334,11 @@ class AnmietimportController extends BaseController
         // debug.php prueft ausschliesslich $_GET['debug'] -- bei einem
         // POST-Formular kommt das sonst nie an. Deshalb ?debug=1 direkt in
         // die Form-Action haengen, wenn der aktuelle Request (GET auf
-        // /anmietimport ODER die vorherige POST-Antwort) debug=1 gesetzt hat.
+        // die Moduluebersicht ODER die vorherige POST-Antwort) debug=1 gesetzt hat.
         $debugQuery = !empty($_GET['debug']) ? '?debug=1' : '';
 
         $toolbar = '
-        <form method="POST" action="' . APP_BASE . '/anmietimport/hochladen' . $debugQuery . '"
+        <form method="POST" action="' . APP_BASE . $this->modulUrl() . '/hochladen' . $debugQuery . '"
               enctype="multipart/form-data" class="row g-2 align-items-end" id="anmietimportForm">
             <input type="hidden" name="import_token" value="' . htmlspecialchars($token, ENT_QUOTES) . '">
             <div class="col-12 col-sm-6 col-lg-auto">
@@ -354,7 +371,7 @@ class AnmietimportController extends BaseController
 
         $this->render('anmietimport/index', [
             'page_title'  => 'Anmietimport',
-            'portal'      => 'mitarbeiter',
+            'portal'      => self::PORTAL,
             'page_header' => '
                 <h1 class="h5 fw-bold mb-0" style="color:var(--text-color);">Anmietimport</h1>',
             'toolbar'     => $toolbar,

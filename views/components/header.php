@@ -3,20 +3,21 @@
 // Kontextabhaengige Navigation. Zeigt ausschliesslich die Menuepunkte des
 // aktiven Portals -- kein Querverweis zwischen Kunden- und Mitarbeiterportal.
 //
-// Erwartet die Layout-Variable $portal:
-//   'kunde'       -- Kundenportal (Default), Registrierung + Login
-//   'mitarbeiter' -- Mitarbeiterportal, Login per Modal + geschuetzte Module
+// Erwartet die Layout-Variable $portal -- gueltige Werte und ihre Startseiten,
+// Labels und Registrierungspfade stehen in core/Portal.php. Dort wird ein
+// neues Portal eingetragen, nicht hier.
 //
-// Das Mitarbeiterportal ist bewusst nur direkt per URL erreichbar.
-// BEIDE Portale haben einen Login (Modal). Der Benutzerbereich ist deshalb
-// nicht mehr an $istMitarbeiter gebunden -- Abmelden fuehrt aber immer zurueck
-// in das Portal, in dem man sich befindet (?portal=..).
+// Nur das Kundenportal ist oeffentlich verlinkt; Mitarbeiter- und Fahrerportal
+// werden ausschliesslich direkt per URL angesteuert. JEDES Portal hat einen
+// eigenen Login (Modal). Abmelden fuehrt immer in das Portal zurueck, in dem
+// man sich befindet (?portal=..).
 
-$portal = $portal ?? 'kunde';
-$istMitarbeiter = ($portal === 'mitarbeiter');
-$portalStart    = $istMitarbeiter ? '/mitarbeiter' : '/';
-$portalLabel    = $istMitarbeiter ? 'Mitarbeiterportal' : 'Kundenportal';
-$logoutLink     = '/logout?portal=' . ($istMitarbeiter ? 'mitarbeiter' : 'kunde');
+use Core\Portal;
+
+$portal      = Portal::name($portal ?? Portal::DEFAULT);
+$portalStart = Portal::start($portal);
+$portalLabel = Portal::label($portal);
+$logoutLink  = '/logout?portal=' . rawurlencode($portal);
 ?>
 <nav class="navbar navbar-expand-lg app-header px-3">
     <a class="navbar-brand" href="<?= APP_BASE . $portalStart ?>">

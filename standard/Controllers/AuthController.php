@@ -6,41 +6,34 @@
  * Es gibt KEINE GET-Route /login -- nur POST /login fuer den Formular-Submit.
  * Token kommt nach Login aus dem Cookie jwt_token -- niemals aus $_SESSION.
  *
- * BEIDE Portale melden sich hier an -- Kunden- und Mitarbeiterportal. Der
- * RATIOserver-Endpunkt /login prueft gegen REGISTRIERUNG (pwd2 per
- * password_verify), dort liegen sowohl Kunden- als auch Mitarbeiter-
- * Registrierungen. Unterschieden wird nur, wohin nach Login bzw. Logout
- * weitergeleitet wird: das Formular schickt ein verstecktes Feld "portal"
- * mit, der Logout-Link haengt ?portal=.. an.
+ * ALLE Portale melden sich hier an -- Kunden-, Mitarbeiter- und Fahrerportal.
+ * Der RATIOserver-Endpunkt /login prueft gegen REGISTRIERUNG (pwd2 per
+ * password_verify), dort liegen die Registrierungen aller Portale
+ * nebeneinander, unterschieden nur durch das Feld typ. Der Vergleich des
+ * Benutzernamens laeuft per UPPER() auf beiden Seiten (DataModulLoginClass.pas)
+ * -- Gross-/Kleinschreibung spielt beim Anmelden also keine Rolle.
  *
- * Das Ziel wird IMMER gegen PORTAL_ZIELE geprueft -- niemals ein Pfad aus
- * dem Request uebernehmen, sonst entsteht eine offene Weiterleitung.
+ * Unterschieden wird hier nur, wohin nach Login bzw. Logout weitergeleitet
+ * wird: das Formular schickt ein verstecktes Feld "portal" mit, der
+ * Logout-Link haengt ?portal=.. an.
+ *
+ * Nach ERFOLGREICHEM Login gewinnt allerdings das Portal des Tokens
+ * (Core\Auth::portalAusToken) -- wer sich am falschen Modal anmeldet, landet
+ * trotzdem in seinem eigenen Portal statt an der Portalgrenze im Router.
+ * Das Formular-Portal bleibt Ziel bei Fehlern und als Fallback.
+ *
+ * Das Ziel kommt IMMER aus Core\Portal -- niemals ein Pfad aus dem Request,
+ * sonst entsteht eine offene Weiterleitung.
  */
 
 namespace Standard\Controllers;
 
+use Core\Auth;
 use Core\BaseController;
+use Core\Portal;
 
 class AuthController extends BaseController
 {
-    /**
-     * Startseite je Portal. Nur diese Werte sind als Ziel zulaessig.
-     */
-    private const PORTAL_ZIELE = [
-        'kunde'       => '/',
-        'mitarbeiter' => '/mitarbeiter',
-    ];
-
-    /**
-     * Portal aus dem Request lesen und auf einen erlaubten Wert abbilden.
-     * Unbekannte oder fehlende Angaben landen im Kundenportal -- das ist der
-     * oeffentliche Default-Einstieg. Ein Fehlgriff wuerde einen Kunden sonst
-     * ins Mitarbeiterportal schicken, das er gar nicht sehen soll.
-     */
-    private function portal(string $wert): string
-    {
-        return isset(self::PORTAL_ZIELE[$wert]) ? $wert : 'kunde';
-    }
 
     /**
      * POST /login -- Login gegen RATIOserver verarbeiten.
@@ -50,8 +43,8 @@ class AuthController extends BaseController
      */
     public function login(): void
     {
-        $portal = $this->portal((string)($_POST['portal'] ?? ''));
-        $ziel   = self::PORTAL_ZIELE[$portal];
+        $portal = Portal::name((string)($_POST['portal'] ?? ''));
+        $ziel   = Portal::start($portal);
 
         // Nur POST erlaubt -- kein GET
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -96,7 +89,13 @@ class AuthController extends BaseController
             'httponly' => false,
         ]);
 
-        $this->redirect($ziel);
+        // Ziel ist das Portal des ANMELDERS (typ aus dem Token), nicht das
+        // Portal, dessen Modal benutzt wurde. Ein Fahrer, der sich ueber das
+        // Modal im Kundenportal anmeldet, landet sonst auf / -- und wird von
+        // der Portalpruefung im Router sofort wieder weggeschickt.
+        // Fallback auf das Formular-Portal, falls der Token kein typ traegt.
+        $tokenPortal = Auth::portalAusToken($token);
+        $this->redirect($tokenPortal !== null ? Portal::start($tokenPortal) : $ziel);
     }
 
     /**
@@ -108,7 +107,7 @@ class AuthController extends BaseController
         setcookie('jwt_token', '', ['expires' => time() - 3600, 'path' => '/', 'samesite' => 'Strict', 'secure' => isset($_SERVER['HTTPS']), 'httponly' => true]);
         setcookie('jwt_user',  '', ['expires' => time() - 3600, 'path' => '/', 'samesite' => 'Strict', 'secure' => isset($_SERVER['HTTPS']), 'httponly' => false]);
 
-        $portal = $this->portal((string)($_GET['portal'] ?? ''));
-        $this->redirect(self::PORTAL_ZIELE[$portal]);
+        $portal = Portal::name((string)($_GET['portal'] ?? ''));
+        $this->redirect(Portal::start($portal));
     }
 }

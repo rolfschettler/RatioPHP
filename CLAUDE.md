@@ -24,20 +24,23 @@ Entwickler:
 │       └── app.css                 <- Layout-CSS (aus ClaudeCodePatterns kopiert)
 │
 ├── core/                           <- Framework-Kern (wird bei Updates ersetzt)
-│   ├── Router.php                  <- URL-Matching + Dispatch
+│   ├── Router.php                  <- URL-Matching + Dispatch + Portalgrenze
 │   ├── Api.php                     <- api_post() + Token-Handling
+│   ├── Auth.php                    <- Portal des Anmelders aus dem Token (role.typ)
 │   ├── BaseController.php          <- Basis fuer alle Controller
+│   ├── Portal.php                  <- Definition der Portale (Start, Praefix, Label, Registrierung)
 │   ├── Codec.php                   <- Codieren/DeCodieren aus rechtelib.pas (USERS.passwort)
 │   └── View.php                    <- render() / layout()
 │
 ├── standard/                       <- Standardmodule (gleich fuer alle Kunden)
 │   ├── Controllers/
-│   │   ├── HomeController.php      <- Startseiten beider Portale
+│   │   ├── HomeController.php      <- Startseiten aller Portale
 │   │   └── BeispielController.php
 │   └── Views/
 │       ├── home/
 │       │   ├── index.php           <- Kundenportal-Startseite (/)
-│       │   └── mitarbeiter.php     <- Mitarbeiterportal-Startseite (/mitarbeiter)
+│       │   ├── mitarbeiter.php     <- Mitarbeiterportal-Startseite (/mitarbeiter)
+│       │   └── fahrer.php          <- Fahrerportal-Startseite (/fahrer)
 │       └── beispiel/
 │           └── index.php
 │
@@ -89,34 +92,96 @@ Der Ordner enthaelt getestete Referenz-Implementierungen die 1:1 kopiert werden.
 
 ## Portalstruktur
 
-Die App besteht aus zwei getrennten Portalen. Beide teilen Layout, Theming und
-Framework-Kern -- unterscheiden sich aber in Navigation und Login.
+Die App besteht aus drei getrennten Portalen. Alle teilen Layout, Theming und
+Framework-Kern -- unterscheiden sich aber in Navigation, Login und Registrierung.
 
-| Portal | Einstieg | Auth | Inhalt |
+| Portal | Einstieg | Routen-Praefix | Auth | Inhalt |
+|---|---|---|---|---|
+| **Kundenportal** | `/` -- Default-Einstieg | `/kunde` | Login per Modal | Registrierung (`typ='kunde'`) |
+| **Mitarbeiterportal** | `/mitarbeiter` -- nur direkt per URL | `/mitarbeiter` | Login per Modal | Alle geschuetzten Module (EINSATZ, ANMIETIMPORT, ...) plus Mitarbeiter-Registrierung (`typ='mitarbeiter'`) |
+| **Fahrerportal** | `/fahrer` -- nur direkt per URL | `/fahrer` | Login per Modal | Fahrer-Registrierung (`typ='fahrer'`). Noch keine Fachmodule. |
+
+Jede Seite eines Portals liegt unter dessen Praefix. Daraus leitet der Router
+das Portal der Route ab und vergleicht es mit `typ` aus dem Token -- siehe
+Abschnitt **Routenkonventionen und Portalgrenzen**.
+
+Einzige Stelle, an der Einstieg und Praefix auseinanderfallen: das Kundenportal.
+`/` bleibt der oeffentliche Einstieg, die uebrigen Kundenseiten liegen unter
+`/kunde/...`. Die Praefix-URL `/kunde` selbst ist keine Seite -- sie leitet auf
+`/` um (`HomeController::kunde()`), damit sie nicht als 404 endet. Bei
+`/mitarbeiter` und `/fahrer` ist der Praefix gleichzeitig die Startseite.
+
+### core/Portal.php -- die Definition der Portale
+
+Startseite, Routen-Praefix, Portal-Label und Registrierungspfad jedes Portals
+stehen **ausschliesslich** in `core/Portal.php`. Header, Login-Modal, Router,
+`AuthController` und `RegistrierungController` lesen von dort.
+
+```php
+Portal::name($wertAusRequest)    // Whitelist-Abbildung, Unbekanntes -> 'kunde'
+Portal::start('fahrer')          // '/fahrer'    -- Startseite
+Portal::praefix('fahrer')        // '/fahrer'    -- Basis fuer Modul-URLs
+Portal::label('fahrer')          // 'Fahrerportal'
+Portal::registrierung('fahrer')  // '/fahrer/registrieren', oder null
+Portal::darfAlles('mitarbeiter') // true -- darf auch fremde Portalrouten sehen
+Portal::ausPfad('/fahrer/touren')// 'fahrer' -- Portal einer Route, null = kein Praefix
+Portal::ausTyp('fahrer')         // 'fahrer' -- typ aus dem Token, null = unbekannt
+```
+
+**`name()` und `ausTyp()` nicht verwechseln** -- die beiden Abbildungen haben
+absichtlich unterschiedliches Verhalten bei Unbekanntem:
+
+| | Eingabe | Unbekannter Wert | Verwendung |
 |---|---|---|---|
-| **Kundenportal** | `/` -- Default-Einstieg | oeffentlich | Registrierung (`typ='kunde'`). Kein Login-Bereich. |
-| **Mitarbeiterportal** | `/mitarbeiter` -- nur direkt per URL | Login per Modal | Alle geschuetzten Module (EINSATZ, ANMIETIMPORT, ...) plus Mitarbeiter-Registrierung (`typ='mitarbeiter'`) |
+| `name()` | Wert aus einem **Request** (`$_POST['portal']`, `?portal=..`) | wird `'kunde'` | Weiterleitungsziele -- fail-safe nach aussen |
+| `ausTyp()` | `role.typ` aus dem **Token** | wird `null` | Zugriffsentscheidungen -- fail-closed |
+
+In REGISTRIERUNG stehen Legacy-Saetze mit `typ='Standard'` und `typ=NULL`. Mit
+`name()` bekaemen die Kundenrechte -- deshalb fuer jede Zugriffsentscheidung
+**ausschliesslich `ausTyp()`** (bzw. `Core\Auth::portal()`, das es aufruft).
+
+**Niemals einen Portalpfad woanders hinschreiben** -- kein `$x === 'mitarbeiter' ? ... : ...`
+in Views oder Controllern. Mit drei Portalen ist jeder solche Ternaeroperator
+bereits falsch. Modul-URLs immer `Portal::praefix($portal) . '/modul'`.
+
+### Ein weiteres Portal anlegen
+
+1. Eintrag in `core/Portal.php` (`start`, `praefix`, `label`, `registrierung`,
+   `darf_alles`)
+2. Action in `HomeController` + View `standard/Views/home/<portal>.php`
+3. Routen in `config/routes.php` (eigener Block, alle Pfade unter dem neuen
+   Praefix, Startseite `['auth' => false]`)
+4. Nur falls es eine Registrierung geben soll: Variante in
+   `RegistrierungController::PORTALE`
+
+Mehr nicht -- Header, Login-Modal, Login- und Logout-Ziele sowie die
+Portalgrenze im Router funktionieren dann von selbst.
 
 ### Grundregeln
 
 - `/` ist IMMER das Kundenportal -- der Default-Einstieg fuer externe Besucher.
-- Das Mitarbeiterportal wird ausschliesslich ueber die URL `/mitarbeiter` angesteuert.
-  **Es gibt KEINEN Link vom Kundenportal ins Mitarbeiterportal** -- keine Portalwahl,
-  kein Umschalter, kein Hinweis im Footer.
-- **Beide Portale haben einen eigenen Login** (Bootstrap-Modal, dieselbe Komponente).
+- Mitarbeiter- und Fahrerportal werden ausschliesslich ueber ihre URL angesteuert.
+  **Es gibt KEINEN Link vom Kundenportal in eines der internen Portale** --
+  keine Portalwahl, kein Umschalter, kein Hinweis im Footer.
+- **Jedes Portal hat einen eigenen Login** (Bootstrap-Modal, dieselbe Komponente).
   Unterschieden wird nur das Weiterleitungsziel: das Formular schickt ein verstecktes
   Feld `portal` mit, der Logout-Link haengt `?portal=..` an. Der `AuthController`
-  bildet den Wert gegen eine Whitelist ab -- niemals einen Pfad aus dem Request
+  bildet den Wert ueber `Portal::name()` ab -- niemals einen Pfad aus dem Request
   uebernehmen.
-- Umgekehrt zeigt das Mitarbeiterportal keine Kundenportal-Menuepunkte
-  (z.B. keine Registrierung).
+- Es gibt nur EINEN Login-Endpunkt fuer alle Portale: `/login` prueft gegen
+  REGISTRIERUNG, wo die Registrierungen aller Portale nebeneinander liegen,
+  unterschieden nur durch `typ`. Der Benutzername wird per `UPPER()` auf beiden
+  Seiten verglichen (`DataModulLoginClass.pas`) -- Gross-/Kleinschreibung spielt
+  beim Anmelden keine Rolle.
+- Jedes Portal zeigt nur seine eigenen Menuepunkte.
 - **Jeder Logout-Link braucht `?portal=..`.** Fehlt er, landet der Nutzer im
-  Kundenportal (Default) -- ein Mitarbeiter also im falschen Portal.
+  Kundenportal (Default) -- ein Fahrer also im falschen Portal.
 
 ### Portal-Kontext: die Variable `$portal`
 
-Jeder `render()`-Aufruf gibt sein Portal mit. Zulaessige Werte: `'kunde'` (Default)
-und `'mitarbeiter'`. `core/View.php` reicht den Wert ans Layout durch, `views/layout.php`
+Jeder `render()`-Aufruf gibt sein Portal mit. Zulaessige Werte sind die Schluessel
+aus `core/Portal.php`: `'kunde'` (Default), `'mitarbeiter'` und `'fahrer'`.
+`core/View.php` reicht den Wert ans Layout durch, `views/layout.php`
 und `views/components/header.php` werten ihn aus.
 
 ```php
@@ -140,27 +205,30 @@ Login-Modal -- der Benutzer kann sich dann nicht mehr anmelden.
 
 `$portal` steuert konkret:
 
-| Was | `'kunde'` | `'mitarbeiter'` |
-|---|---|---|
-| Brand-Link im Header | `/` | `/mitarbeiter` |
-| Menuepunkte | nur Start | nur Start |
-| Rechte Navigation | Anmelden-Modal bzw. Benutzer-Dropdown | dito |
-| Login-Modal im HTML | wird gerendert | wird gerendert |
-| Verstecktes Feld `portal` im Modal | `kunde` | `mitarbeiter` |
-| Registrierungs-Link im Modal | `/registrieren` | `/mitarbeiter/registrieren` |
-| Ziel nach Login/Logout | `/` | `/mitarbeiter` |
-| Benutzername im Footer | ja, falls eingeloggt | ja, falls eingeloggt |
-| Portal-Label neben Brand | "Kundenportal" | "Mitarbeiterportal" |
+| Was | `'kunde'` | `'mitarbeiter'` | `'fahrer'` |
+|---|---|---|---|
+| Brand-Link im Header | `/` | `/mitarbeiter` | `/fahrer` |
+| Menuepunkte | nur Start | nur Start | nur Start |
+| Rechte Navigation | Anmelden-Modal bzw. Benutzer-Dropdown | dito | dito |
+| Login-Modal im HTML | wird gerendert | wird gerendert | wird gerendert |
+| Verstecktes Feld `portal` im Modal | `kunde` | `mitarbeiter` | `fahrer` |
+| Registrierungs-Link im Modal | `/kunde/registrieren` | `/mitarbeiter/registrieren` | `/fahrer/registrieren` |
+| Ziel nach Login/Logout | `/` | `/mitarbeiter` | `/fahrer` |
+| Benutzername im Footer | ja, falls eingeloggt | ja, falls eingeloggt | ja, falls eingeloggt |
+| Portal-Label neben Brand | "Kundenportal" | "Mitarbeiterportal" | "Fahrerportal" |
+
+Alle Werte dieser Tabelle stammen aus `core/Portal.php` -- die Spalten sind
+nicht einzeln im Code ausprogrammiert.
 
 ### Keine Feature-Links im Header
 
-**Der Header verlinkt KEINE Features/Module** -- weder im Kunden- noch im
-Mitarbeiterportal. Er enthaelt ausschliesslich:
+**Der Header verlinkt KEINE Features/Module** -- in keinem Portal.
+Er enthaelt ausschliesslich:
 
 - Brand (fuehrt zur Portal-Startseite)
 - Portal-Label
 - Menuepunkt "Start"
-- im Mitarbeiterportal: Anmelden-Modal bzw. Benutzer-Dropdown mit Abmelden
+- Anmelden-Modal bzw. Benutzer-Dropdown mit Abmelden
 
 Module werden ausschliesslich ueber die Kacheln der Portal-Startseite erreicht.
 Beim Anlegen eines neuen Moduls also **keinen Menuepunkt** in
@@ -169,51 +237,197 @@ Beim Anlegen eines neuen Moduls also **keinen Menuepunkt** in
 ### Neues Modul zuordnen
 
 - Geschuetztes Modul (Default `auth: true`) -> Mitarbeiterportal:
-  `'portal' => 'mitarbeiter'` im `render()` und Kachel in
-  `standard/Views/home/mitarbeiter.php` ergaenzen.
-- Oeffentliches Modul fuer Kunden -> Kundenportal: `'portal' => 'kunde'`
-  und Einstieg in `standard/Views/home/index.php` ergaenzen.
+  Route unter `/mitarbeiter/...`, `'portal' => 'mitarbeiter'` im `render()`
+  und Kachel in `standard/Views/home/mitarbeiter.php` ergaenzen.
+- Oeffentliches Modul fuer Kunden -> Kundenportal: Route unter `/kunde/...`,
+  `'portal' => 'kunde'` und Einstieg in `standard/Views/home/index.php`.
 - In beiden Faellen: `views/components/header.php` bleibt unangetastet.
+
+---
+
+## Routenkonventionen und Portalgrenzen
+
+Der Router laesst nicht jeden Angemeldeten auf jede Route. Grundlage ist ein
+Vergleich zweier Werte:
+
+- **Portal der Route** -- aus dem Routen-Praefix (`Portal::ausPfad()`)
+- **Portal des Anmelders** -- `role.typ` aus dem Token (`Core\Auth::portal()`)
+
+### Praefix-Konvention
+
+**Jede Portalseite liegt unter dem Praefix ihres Portals.** Aus dem Pfad ergibt
+sich das Portal automatisch -- eine Portalangabe kann also nicht vergessen
+werden.
+
+| Pfad | Portal |
+|---|---|
+| `/` | kunde (Startseite, praefixlos) |
+| `/kunde` | kunde -- leitet auf `/` um (die Praefix-URL selbst ist keine Seite) |
+| `/kunde/...` | kunde |
+| `/mitarbeiter/...` | mitarbeiter |
+| `/fahrer/...` | fahrer |
+| `/login`, `/logout` | portaluebergreifend -- `['portal' => Router::ALLE]` |
+
+Eine Route ohne Praefix (und ohne `portal`-Option) gehoert zu keinem Portal.
+Der Router weist sie ab: bei `DEBUG` mit HTTP 500 und Klartextmeldung, sonst
+mit 404. Er raet NICHT, und er laesst sie auch nicht ungeschuetzt durch.
+
+`Router::ALLE` ist ausschliesslich fuer `/login` und `/logout` gedacht --
+Abmelden muss auch mit einem Token funktionieren, dessen `typ` zu keinem Portal
+gehoert. Kein Fachmodul bekommt diesen Wert.
+
+### Zugriffsregel
+
+`typ='mitarbeiter'` darf jede Route besuchen (`darf_alles` in `core/Portal.php`),
+alle anderen nur ihr eigenes Portal:
+
+| Token | `/` und `/kunde/...` | `/mitarbeiter/...` | `/fahrer/...` | `/login`, `/logout` |
+|---|---|---|---|---|
+| kein Token | nur `auth => false` | nur `auth => false` | nur `auth => false` | ja |
+| `typ=kunde` | ja | nein | nein | ja |
+| `typ=fahrer` | nein | nein | ja | ja |
+| `typ=mitarbeiter` | ja | ja | ja | ja |
+| `typ` unbekannt/leer | wie "kein Token" | wie "kein Token" | wie "kein Token" | ja |
+
+- **Fremdes Portal** (angemeldet, falsches Portal): Flash-Fehler „Diese Seite
+  gehört nicht zu Ihrem Portal." + Weiterleitung auf `Portal::start($tokenPortal)`.
+- **Kein verwertbarer Token** auf einer Route mit `auth => true`: Weiterleitung
+  auf die Startseite des ZIELPORTALS mit `?login=1` -- nicht mehr fest auf
+  `/mitarbeiter`.
+
+### core/Auth.php -- das Portal des Tokens
+
+```php
+Auth::portal()                 // Portal aus dem Cookie jwt_token, oder null
+Auth::portalAusToken($token)   // dasselbe fuer einen frisch erhaltenen Token
+```
+
+Gelesen wird **lokal aus dem JWT-Payload** -- ausdruecklich KEIN Aufruf von
+`/verifytoken`. Die Portalpruefung laeuft damit ohne Roundtrip und ohne
+Abhaengigkeit von der Erreichbarkeit des Backends.
+
+Zwei Eigenheiten des Payloads (beide live verifiziert), die beim Anfassen dieser
+Klasse wichtig sind:
+
+1. **base64url, nicht base64** -- `strtr($teil, '-_', '+/')` plus Padding auf ein
+   Vielfaches von 4.
+2. **`role` ist ein JSON-String, kein Objekt** -- `uJWTUtils` haengt den Claim
+   per `AddPair('role', ARole)` als Zeichenkette an. Es braucht also ein
+   **zweites** `json_decode`.
+
+`exp` wird bewusst nicht geprueft. Falls das jemand nachruestet: `exp` und `iat`
+sind **keine UTC-Zeitstempel** -- Delphi setzt `IncMinute(Now, ..)` mit lokaler
+Zeit, die JOSE-Bibliothek schreibt sie als UTC, der Wert ist um den
+Zeitzonen-Offset verschoben. Vergleich also gegen lokale Zeit, nicht `time()`.
+
+**Was die Pruefung leistet und was nicht:** Die Signatur wird nicht geprueft
+(das Secret liegt nur im RATIOserver). Ein selbst gebautes oder abgelaufenes
+Cookie kommt durch das PHP-Gate und die Portalseite rendert -- jeder
+Datenzugriff bleibt aber leer, weil RATIOserver den Token bei jedem
+`api_post()` ablehnt. Das Gate ist eine **Portal-Wegweisung**, keine
+Zugriffskontrolle auf Daten; die sitzt im Backend. Wer das Gate selbst
+unumgehbar braucht, muesste `/verifytoken` pro Request aufrufen -- bewusst
+verworfen.
+
+### Regeln fuer Claude Code
+
+- Neue Route IMMER unter das Praefix ihres Portals -- `/mitarbeiter/lieferungen`,
+  nicht `/lieferungen`
+- `['portal' => Router::ALLE]` nur fuer `/login` und `/logout`
+- Zugriffsentscheidungen ausschliesslich ueber `Auth::portal()` bzw.
+  `Portal::ausTyp()` -- niemals `Portal::name()`, niemals `role.typ` selbst
+  parsen
+- Kein `/verifytoken`-Aufruf fuer die Portalpruefung nachruesten
+- Modul-URLs in Views und Controllern aus `Portal::praefix()` bauen -- kein
+  Praefix ausschreiben. Muster in `EinsatzController` und
+  `AnmietimportController`: je eine Konstante `PORTAL` und `MODUL`, daraus
+  `Portal::praefix(self::PORTAL) . self::MODUL`
 
 ---
 
 ## Registrierung
 
-Beide Portale registrieren ueber denselben Controller
+Alle Portale registrieren ueber denselben Controller
 (`standard/Controllers/RegistrierungController.php`), dieselbe Verarbeitung und
 denselben View. Die Unterschiede stehen ausschliesslich in der Konstante `PORTALE`.
-Zwei getrennte Formulare wuerden mit der Zeit auseinanderdriften -- deshalb NIE
+Getrennte Formulare wuerden mit der Zeit auseinanderdriften -- deshalb NIE
 kopieren, sondern eine weitere Variante in `PORTALE` ergaenzen.
 
 | Portal | Route | `typ` | Zugang | `username` | Adresse | Passwort |
 |---|---|---|---|---|---|---|
-| Kundenportal | `/registrieren` | `kunde` | offen | E-Mail-Adresse | ADRESSEN wird angelegt bzw. verknuepft | eigenes Portalpasswort mit Wiederholung |
+| Kundenportal | `/kunde/registrieren` | `kunde` | offen | E-Mail-Adresse | ADRESSEN wird angelegt bzw. verknuepft | eigenes Portalpasswort mit Wiederholung |
 | Mitarbeiterportal | `/mitarbeiter/registrieren` | `mitarbeiter` | nur mit Loginname + Passwort aus USERS | USERS-Loginname | keine | das USERS-Passwort, keine Wiederholung |
+| Fahrerportal | `/fahrer/registrieren` | `fahrer` | nur wer mit Kuerzel + Vor- und Nachname im PERSONALSTAMM steht | Personalstamm-Kuerzel (`zeichen`), immer GROSS | keine | eigenes Portalpasswort mit Wiederholung |
 
 Das Mitarbeiterformular fragt genau zwei Felder ab: Loginname und Passwort. Keine
 E-Mail-Adresse -- REGISTRIERUNG hat kein E-Mail-Feld, und ohne Adresse gibt es auch
 kein `ADRESSEN.email`, in dem sie landen koennte. Grundsatz: **kein Formular fragt
 Daten ab, die nirgends gespeichert werden.**
 
+Die Schalter in `PORTALE` sind bewusst einzeln und nicht an `adressdaten`
+gekoppelt -- das Fahrerportal braucht Namensfelder OHNE Adresse:
+
+| Schalter | `kunde` | `mitarbeiter` | `fahrer` |
+|---|---|---|---|
+| `userspruefung` -- USERS-Nachweis in PHP | nein | ja | nein (der Endpunkt prueft selbst) |
+| `adressdaten` -- Anrede, Anschrift, Telefon, Kundennummer | ja | nein | nein |
+| `namensfelder` -- `name1`, `name2` | ja | nein | **ja** |
+| `eigenes_passwort` -- Passwort + Wiederholung | ja | nein | ja |
+| `live_pruefung` -- Verfuegbarkeit waehrend der Eingabe | ja | nein | nein |
+| `username_aus` | `email` | `loginname` | `zeichen` |
+
 ### typ ist Pflicht -- und steuert die Adressbehandlung
 
 `REGISTRIERUNG.typ` haelt fest, aus welchem Portal registriert wurde. Der Endpunkt
-`insertregistrierunglocal` nimmt `typ` an (Whitelist `username, pwd2, typ`) und
-entscheidet daran, ob eine Adresse entsteht:
+`insertregistrierunglocal` laesst laut Delphi-Quelle
+(`DataModulRegistrierungClass.pas`) **ausschliesslich `kunde`, `mitarbeiter` und
+`fahrer`** zu -- jeder andere sowie ein fehlender `typ` wird abgewiesen
+("Ungueltiger typ. Erlaubt sind kunde, mitarbeiter und fahrer."). Am `typ` haengt,
+was der Endpunkt prueft und ob eine Adresse entsteht:
 
 - `typ='kunde'` -- REGISTRIERUNG und ADRESSEN in einer Transaktion. `anrede`,
   `name1`, `name2` sind Pflicht, `kennziffer` verknuepft eine bestehende Adresse.
-- **jeder andere `typ`** (z.B. `mitarbeiter`) und **fehlender `typ`** -- KEINE
-  Adresse, `kennziffer` bleibt `NULL`, die Adressfelder werden ignoriert. Die
-  Antwort lautet dann `"kennziffer":null` und `"adresse":"keine"`.
+- `typ='fahrer'` -- `username`, `name1` (Vorname) und `name2` (Nachname) sind
+  Pflicht. `username` wird grossgeschrieben und muss zusammen mit den Namen einem
+  Satz im PERSONALSTAMM entsprechen (`username = zeichen`, `name1`, `name2`).
+  Ohne Treffer: "Benutzer ist nicht im Personalstamm vorhanden." KEINE Adresse.
+- `typ='mitarbeiter'` -- KEINE Adresse, keine weiteren Pflichtfelder.
+
+Bei `mitarbeiter` und `fahrer` bleibt `kennziffer` `NULL` und die Antwort lautet
+`"kennziffer":null`, `"adresse":"keine"`. Die Adressfelder werden dort verworfen --
+**mit Ausnahme von `name1`/`name2` bei `fahrer`**: die sind Suchkriterium, kein
+Adressinhalt, und muessen mitgesendet werden.
 
 **Jeder Registrierungsvorgang setzt `typ` passend zum Portal** -- ohne den Wert
-bleibt das Feld `null`, spaetere Auswertungen koennen Kunden nicht von Mitarbeitern
-unterscheiden, UND es wird stillschweigend keine Adresse angelegt.
+lehnt der Endpunkt den Aufruf komplett ab.
 
-Welche Felder ein Formular abfragt, steuert `PORTALE[..]['adressdaten']` im
-Controller. Ein Formular fragt NIE Felder ab, die der Endpunkt bei diesem `typ`
+Welche Felder ein Formular abfragt, steuern die Schalter in `PORTALE[..]` (Tabelle
+oben). Ein Formular fragt NIE Felder ab, die der Endpunkt bei diesem `typ`
 ohnehin verwirft.
+
+### Fahrer-Registrierung -- Abgleich mit dem PERSONALSTAMM
+
+Anders als beim Mitarbeiterportal prueft **PHP hier gar nichts** -- der
+Identitaetsnachweis passiert vollstaendig im Endpunkt. `userspruefung` ist
+deshalb `false`, es gibt keine zweite Passworteingabe und keinen `Codec`-Aufruf.
+
+Was PHP beisteuert: Kuerzel grossschreiben (`mb_strtoupper`), Laengen pruefen
+(`zeichen` ist `ftstring 15`, `name1`/`name2` je 30) und `name1`/`name2` in den
+Request legen.
+
+Live verifiziert am 2026-08-27 gegen den laufenden RATIOserver:
+
+| Eingabe | Ergebnis |
+|---|---|
+| `dan` / Daniela / . (existiert im PERSONALSTAMM) | angelegt als `username='DAN'`, `typ='fahrer'`, `kennziffer=null` |
+| `IVANA` / Falscher / Name | "Benutzer ist nicht im Personalstamm vorhanden." |
+| `DAN` erneut | "Für dieses Fahrerkürzel ist bereits ein Portalzugang angelegt." |
+| Login mit `dan` (klein) | erfolgreich -- `/login` vergleicht per `UPPER()` |
+
+Die Live-Verfuegbarkeitspruefung ist im Fahrerportal bewusst **aus**
+(`live_pruefung => false`): sie wuerde oeffentlich verraten, welche Fahrerkuerzel
+bereits einen Zugang haben. Die Dublette meldet erst das abgesendete Formular --
+und das faellt unter das Rate-Limit.
 
 ### Mitarbeiter-Registrierung -- Nachweis ueber USERS
 
@@ -380,13 +594,14 @@ Fehler (HTTP 401):
 ### Login-Ablauf im AuthController
 
 Das Login-Formular sitzt in einem Bootstrap-Modal (`views/components/login-modal.php`).
-Das Modal ist im `layout.php` eingebunden und wird in BEIDEN Portalen gerendert.
+Das Modal ist im `layout.php` eingebunden und wird in JEDEM Portal gerendert.
 Der "Anmelden"-Link im Header oeffnet es per `data-bs-toggle="modal"`.
 
 Es gibt keine GET-Route `/login` -- nur POST `/login` fuer den Formular-Submit.
 `/login` prueft gegen REGISTRIERUNG (`pwd2` per `password_verify`) -- dort liegen
-Kunden- und Mitarbeiter-Registrierungen gleichermassen. Es gibt also nur EINEN
-Login-Endpunkt fuer beide Portale.
+die Registrierungen aller Portale nebeneinander, unterschieden nur durch `typ`.
+Es gibt also nur EINEN Login-Endpunkt fuer alle Portale. Der Benutzername wird
+per `UPPER()` auf beiden Seiten verglichen -- Gross-/Kleinschreibung egal.
 
 **Das Weiterleitungsziel kommt aus dem versteckten Feld `portal`:**
 
@@ -394,17 +609,37 @@ Login-Endpunkt fuer beide Portale.
 |---|---|---|---|
 | `kunde` | `/` | `/?login=1` | `/` |
 | `mitarbeiter` | `/mitarbeiter` | `/mitarbeiter?login=1` | `/mitarbeiter` |
+| `fahrer` | `/fahrer` | `/fahrer?login=1` | `/fahrer` |
 
-Der `AuthController` bildet den Wert ueber die Konstante `PORTAL_ZIELE` ab.
-Unbekannte, fehlende oder manipulierte Werte landen im Kundenportal.
+Der `AuthController` bildet den Wert ueber `Core\Portal` ab. Unbekannte, fehlende
+oder manipulierte Werte landen im Kundenportal.
+
+**Ausnahme nach ERFOLGREICHEM Login: das Portal des Tokens gewinnt.**
+`Auth::portalAusToken($token)` liest `role.typ` aus der frischen Antwort -- wer
+sich am Modal eines fremden Portals anmeldet, landet trotzdem in seinem eigenen
+Portal. Ohne das wuerde ein Fahrer, der sich ueber das Kundenportal anmeldet,
+nach `/` geschickt und von der Portalgrenze im Router mit einer Fehlermeldung
+sofort wieder weggeschickt. Das Formular-Portal bleibt Ziel bei Fehlern und als
+Fallback, falls der Token kein verwertbares `typ` traegt.
 
 ```php
-// RICHTIG -- nur Portalnamen annehmen, Pfad aus der Whitelist
-private const PORTAL_ZIELE = ['kunde' => '/', 'mitarbeiter' => '/mitarbeiter'];
-$ziel = self::PORTAL_ZIELE[$this->portal((string)($_POST['portal'] ?? ''))];
+$tokenPortal = Auth::portalAusToken($token);
+$this->redirect($tokenPortal !== null ? Portal::start($tokenPortal) : $ziel);
+```
+
+Das Cookie kann an dieser Stelle nicht gelesen werden -- `setcookie()` wirkt
+erst beim naechsten Request. Deshalb `portalAusToken()` und nicht `portal()`.
+
+```php
+// RICHTIG -- nur Portalnamen annehmen, Pfad aus der zentralen Definition
+$portal = Portal::name((string)($_POST['portal'] ?? ''));
+$ziel   = Portal::start($portal);
 
 // FALSCH -- Pfad aus dem Request ist eine offene Weiterleitung
 $ziel = $_POST['redirect_to'] ?? '/';
+
+// FALSCH -- eigene Whitelist im Controller. Sie vergisst jedes neue Portal.
+private const PORTAL_ZIELE = ['kunde' => '/', 'mitarbeiter' => '/mitarbeiter'];
 ```
 
 Nach erfolgreichem Login:
@@ -531,23 +766,32 @@ im `$istMitarbeiter`-Zweig ausgegeben:
 
 ### Router Auth-Check
 
-Geschuetzte Routen gehoeren immer zum Mitarbeiterportal. Nicht eingeloggte Nutzer
-landen daher auf `/mitarbeiter?login=1` -- dort ist das Login-Modal verfuegbar und
-oeffnet sich automatisch.
+Die Pruefung im Router hat zwei Stufen: erst Portalgrenze, dann Login-Zwang.
+Details und Zugriffstabelle im Abschnitt **Routenkonventionen und Portalgrenzen**.
+
+Das Ziel des Login-Redirects ist die Startseite des **Portals der Route** --
+nicht mehr fest `/mitarbeiter`. Sonst landet ein Kunde auf einer geschuetzten
+Kundenseite im Mitarbeiterportal.
 
 ```php
-// RICHTIG -- Ziel ist das Mitarbeiterportal, Modal oeffnet sich per ?login=1
-if ($route['auth'] && empty($_COOKIE['jwt_token'])) {
-    header('Location: ' . APP_BASE . '/mitarbeiter?login=1');
+// RICHTIG -- Ziel ist die Startseite des Portals der Route,
+// ?login=1 oeffnet dort das Modal automatisch per JS
+$tokenPortal = Auth::portal();
+if ($tokenPortal === null && $route['auth']) {
+    header('Location: ' . APP_BASE . Portal::start($route['portal']) . '?login=1');
     exit;
 }
 
-// FALSCH -- geschuetzte Routen gehoeren zum Mitarbeiterportal, nicht nach /
-// (das Kundenportal hat zwar inzwischen ein Login-Modal, ist aber das falsche Ziel)
-header('Location: ' . APP_BASE . '/');
+// FALSCH -- fest verdrahtetes Portal. Falsch, sobald eine geschuetzte Route
+// nicht zum Mitarbeiterportal gehoert.
+header('Location: ' . APP_BASE . '/mitarbeiter?login=1');
 
 // FALSCH -- /login existiert nur als POST-Route, das ergibt einen 404
 header('Location: ' . APP_BASE . '/login');
+
+// FALSCH -- nur "Cookie vorhanden" geprueft. Sagt nichts ueber das Portal
+// und laesst einen Kundentoken auf jede Mitarbeiterseite.
+if ($route['auth'] && empty($_COOKIE['jwt_token'])) { ... }
 
 // FALSCH -- Session wird nicht verwendet
 if ($route['auth'] && empty($_SESSION['jwt_token'])) { ... }
@@ -559,8 +803,19 @@ if ($route['auth'] && empty($_SESSION['jwt_token'])) { ... }
 POST /verifytoken
 ```
 
-Wird nach dem Login aufgerufen um den Benutzernamen zu ermitteln.
+Prueft Signatur und Ablauf serverseitig und gibt den `role`-Claim zurueck.
 Der Token wird im Authorization-Header mitgeschickt.
+
+**Die App ruft diesen Endpunkt nicht auf.** Der Benutzername kommt aus
+`$_POST['user']`, das Portal aus dem lokal dekodierten Payload
+(`core/Auth.php`). Der Endpunkt ist hier dokumentiert, weil er die Struktur des
+`role`-Claims zeigt -- nicht als Aufrufmuster. Kein `/verifytoken` fuer die
+Portalpruefung nachruesten (Begruendung im Abschnitt Routenkonventionen).
+
+Achtung bei der Antwort: `user` auf oberster Ebene ist bei einem Login aus PHP
+LEER -- `DoLogin` nimmt den Subject aus dem Query-String, PHP sendet die
+Anmeldedaten aber im JSON-Body. Der Benutzername steht in `role.username` bzw.
+`role.loginname`.
 
 Erfolg (HTTP 200):
 ```json
@@ -599,8 +854,8 @@ $this->redirect('/mitarbeiter');
 
 ### Was Claude Code beim Befehl "Erstelle einen Login" anlegen soll
 
-- Route `/login` in `config/routes.php` -- nur POST, `['auth' => false]`
-- Route `/logout` in `config/routes.php` mit `['auth' => false]`
+- Route `/login` in `config/routes.php` -- nur POST, `['auth' => false, 'portal' => Router::ALLE]`
+- Route `/logout` in `config/routes.php` mit `['auth' => false, 'portal' => Router::ALLE]`
 - `standard/Controllers/AuthController.php` mit `login()` und `logout()` gemaess Muster oben
 - `views/components/login-modal.php` -- Bootstrap-Modal mit Login-Formular
   - `action="<?= APP_BASE ?>/login"` method POST
@@ -614,7 +869,7 @@ $this->redirect('/mitarbeiter');
   <?php include VIEW_PATH . '/components/login-modal.php'; ?>
   ```
 - `views/components/header.php` -- "Anmelden"-Link bzw. Benutzer-Dropdown, in
-  beiden Portalen. Modal per `data-bs-toggle="modal" data-bs-target="#loginModal"`
+  jedem Portal. Modal per `data-bs-toggle="modal" data-bs-target="#loginModal"`
 - Redirects von `login()` und `logout()` richten sich nach `portal` (siehe Tabelle
   oben) -- immer aus der Whitelist, nie ein Pfad aus dem Request
 - Keine eigene View `auth/login.php` -- das Modal ersetzt sie vollstaendig
@@ -1098,6 +1353,95 @@ ClaudeCodePatterns/dataset-verknuepfung.md
 
 ---
 
+## Feldlaengen und Eingabepruefung
+
+Jedes Eingabefeld hat **zwei** Grenzen: `maxlength` im HTML (Bedienerfuehrung)
+und eine serverseitige Pruefung im Controller (die verbindliche). `maxlength`
+allein genuegt NIE -- es ist mit jedem HTTP-Client umgehbar.
+
+### Zeichen oder Bytes? -- Zeichen.
+
+Die Datenbank laeuft mit `charset NONE` (`RDB$CHARACTER_SET_ID = 0`), dort ist
+`RDB$FIELD_LENGTH` gleich `RDB$CHARACTER_LENGTH`. FireDAC konvertiert beim
+Schreiben von UTF-8 in die ANSI-Codepage und beim Lesen zurueck -- ein Umlaut
+belegt in der Spalte also **ein** Byte.
+
+Live verifiziert am 2026-08-27: 30-mal `ü` (= 60 UTF-8-Bytes) in
+`ADRESSEN.name1` (30 Zeichen) wird vollstaendig gespeichert und unveraendert
+zurueckgelesen.
+
+**Konsequenz: `mb_strlen()` ist die richtige Funktion** -- sie zaehlt Zeichen,
+genau wie die Spalte. `strlen()` waere hier falsch und wuerde Umlautnamen
+grundlos ablehnen.
+
+Einzige Ausnahme ist das Passwort: dort zaehlt `strlen()` (Bytes), weil die
+Bcrypt-Grenze in Bytes gilt -- siehe unten.
+
+### Feldlaengen laut Datenbank
+
+Abgefragt ueber den `header`-Block (`"fields":"*"`) bzw. `RDB$RELATION_FIELDS`:
+
+| Tabelle | Spalte | Laenge |
+|---|---|---|
+| ADRESSEN | anrede, titel | 20 |
+| ADRESSEN | name1, name2, strasse, ort | 30 |
+| ADRESSEN | plz | 15 |
+| ADRESSEN | telefon1 | 25 |
+| ADRESSEN | email | 60 |
+| REGISTRIERUNG | username | 120 |
+| REGISTRIERUNG | pwd2 | 255 |
+| REGISTRIERUNG | typ | 30 |
+| USERS | loginname | 20 |
+| USERS | passwort | 20 |
+| PERSONALSTAMM | zeichen | 15 |
+| PERSONALSTAMM | name1, name2 | 30 |
+| EINSATZ | fahrer1, fahrzeug | 30 |
+| EINSATZ | bezeichnung | 120 |
+| EINSATZ | dienstnr | 10 |
+
+### Abgleich Formularfeld -> Spalte
+
+| Feld | Grenze | Woher | Serverseitige Pruefung |
+|---|---|---|---|
+| `name1`, `name2` | 30 | ADRESSEN bzw. PERSONALSTAMM | `MAX_LAENGE` |
+| `strasse`, `ort` | 30 | ADRESSEN | `MAX_LAENGE` |
+| `plz` | 15 | ADRESSEN | `MAX_LAENGE` |
+| `telefon1` | 25 | ADRESSEN | `MAX_LAENGE` |
+| `username` (Kunde) | 60 | ADRESSEN.email -- **nicht** REGISTRIERUNG.username (120), die E-Mail landet in beiden Feldern, die kleinere Grenze bindet | `MAX_LAENGE` |
+| `username` (Fahrer) | 15 | PERSONALSTAMM.zeichen | `MAX_ZEICHEN` |
+| `loginname` | 20 | USERS.loginname | `MAX_LOGINNAME` |
+| `login_password` | 20 | USERS.passwort | `MAX_USERS_PASSWORT` in `pruefeMitarbeiter()` |
+| `password`, `password_wdh` | 72 Bytes | Bcrypt | `MAX_PASSWORT_BYTES` |
+| `kennziffer` | 10 Ziffern | ADRESSEN.kennziffer (ftinteger) | `MAX_KENNZIFFER` |
+| `anrede` | Whitelist | `ANREDEN` (max 7 Zeichen < 20) | `in_array()` |
+| Einsatz-Filter | 61 / 30 / 120 | durchsuchte EINSATZ-Spalten | keine -- reine Anzeigefilter, kein Insert |
+
+### Warum das Passwort bei 72 Bytes endet
+
+`password_hash()` mit `PASSWORD_DEFAULT` (Bcrypt) verarbeitet nur die ersten
+**72 Bytes** und ignoriert alles danach stillschweigend. Ohne Grenze koennte
+sich jemand mit einem 200 Zeichen langen Passwort registrieren und sich
+anschliessend mit den ersten 72 anmelden. Deshalb wird abgelehnt statt
+abgeschnitten -- und mit `strlen()` geprueft, nicht `mb_strlen()`, weil die
+Grenze in Bytes gilt (ein Umlaut zaehlt doppelt).
+
+Die Zielspalte `REGISTRIERUNG.pwd2` (255) ist dabei unkritisch: dort landet nur
+der 60 Zeichen lange Hash, nie das Passwort selbst.
+
+### Regeln fuer Claude Code
+
+- Jedes neue Eingabefeld bekommt `maxlength` **und** eine serverseitige Pruefung
+- Die Grenze wird aus der Zielspalte abgeleitet -- nie geraten. Feldlaengen
+  ermitteln: Endpunkt einmal mit `"fields":"*"` aufrufen, der `header`-Block
+  nennt Typ und Laenge (`"name1":"ftstring 30"`)
+- Schreibt ein Feld in MEHRERE Spalten (wie die E-Mail in `username` und
+  `email`), gilt die **kleinste** Grenze
+- Laengen als benannte Konstante im Controller, nie als Zahl im View --
+  der View bekommt den Wert ueber `render()`
+- `mb_strlen()` fuer Textfelder, `strlen()` nur fuer Passwoerter
+
+---
+
 ## Theming
 
 Alle Farben der App sind als CSS-Variablen in `public/css/app.css` definiert (`:root`-Block).
@@ -1211,15 +1555,23 @@ Fuer Details siehe `ClaudeCodePatterns/layout-pattern.md`.
 weil das Pattern die Portalstruktur nicht kennt:
 
 1. Der Header-Block ist durch `include VIEW_PATH . '/components/header.php'` ersetzt.
-2. Das Login-Modal ist ohne Bedingung eingebunden -- beide Portale haben ein Login,
+2. Das Login-Modal ist ohne Bedingung eingebunden -- jedes Portal hat ein Login,
    die Komponente wertet `$portal` selbst aus.
-3. Der Benutzername im Footer erscheint in beiden Portalen, sobald angemeldet.
+3. Der Benutzername im Footer erscheint in jedem Portal, sobald angemeldet.
 
-Ebenso weicht `core/Router.php` in einer Zeile ab: der Auth-Redirect zeigt auf
-`/mitarbeiter?login=1` statt auf `/login` (siehe Abschnitt Router Auth-Check).
+Ebenso weicht `core/Router.php` deutlich ab -- das Pattern kennt keine Portale:
 
-Beim Uebernehmen einer neuen Pattern-Version diese drei Punkte und die Router-Zeile
-erneut einarbeiten -- nicht das Pattern blind ueberkopieren.
+1. `add()` kennt die Option `portal`, Default aus dem Routen-Praefix.
+2. `dispatch()` prueft die Portalgrenze (`pruefePortal()`): Praefix der Route
+   gegen `role.typ` aus dem Token.
+3. Der Auth-Redirect zeigt auf die Startseite des Portals der Route mit
+   `?login=1` -- nicht auf `/login`.
+4. Routen ohne Portalangabe werden abgewiesen statt durchgelassen.
+
+Dazu kommt `core/Auth.php` -- eine Datei, die es im Pattern nicht gibt.
+
+Beim Uebernehmen einer neuen Pattern-Version diese drei Layout-Punkte und alle
+vier Router-Punkte erneut einarbeiten -- nicht das Pattern blind ueberkopieren.
 
 ### Layout-Variablen
 
@@ -1376,8 +1728,12 @@ sobald ein Baustein in mehr als einem View benoetigt wird -- ohne Rueckfrage.
 
 **Beim ersten Anlegen:** `core/Router.php` wird 1:1 aus
 `ClaudeCodePatterns/router-implementation.php` kopiert -- nie neu generiert.
-Einzige Abweichung im laufenden Projekt: das Ziel des Auth-Redirects
-(`/mitarbeiter?login=1`) -- siehe Abschnitt Router Auth-Check.
+Im laufenden Projekt weicht die Datei allerdings deutlich vom Pattern ab, weil
+das Pattern die Portalstruktur nicht kennt: Route-Option `portal` mit Default aus
+dem Praefix, Portalgrenze gegen `role.typ`, Auth-Redirect zur Startseite des
+Portals der Route, Abweisung von Routen ohne Praefix. Siehe Abschnitte
+**Routenkonventionen und Portalgrenzen** sowie **Router Auth-Check** -- beim
+Uebernehmen einer neuen Pattern-Version erneut einarbeiten.
 
 Der Router laedt beide Routen-Dateien -- Standard zuerst, dann Custom:
 ```php
@@ -1393,23 +1749,33 @@ Custom-Routen koennen Standard-Routen ueberschreiben (spaeteres Laden gewinnt).
 $router->add(string $path, string $controller, string $action, array $options = []): void
 ```
 
-### Authentifizierung pro Route
+### Authentifizierung und Portal pro Route
 
 `$options['auth']` -- Default: `true`.
+`$options['portal']` -- Default: aus dem Routen-Praefix abgeleitet.
 
 ```php
 // Kundenportal -- oeffentlicher Default-Einstieg
 $router->add('/', 'Standard\Controllers\HomeController', 'index', ['auth' => false]);
-$router->add('/registrieren', 'Standard\Controllers\RegistrierungController', 'index', ['auth' => false]);
+$router->add('/kunde/registrieren', 'Standard\Controllers\RegistrierungController', 'index', ['auth' => false]);
 
 // Mitarbeiterportal -- Einstieg per URL, kein auth-Check, Login laeuft per Modal
 $router->add('/mitarbeiter', 'Standard\Controllers\HomeController', 'mitarbeiter', ['auth' => false]);
 
-// Gastseiten
-$router->add('/login',  'Standard\Controllers\AuthController', 'login',  ['auth' => false]);
-$router->add('/logout', 'Standard\Controllers\AuthController', 'logout', ['auth' => false]);
+// Fahrerportal -- ebenso; die Identitaetspruefung macht der Registrierungs-
+// Endpunkt selbst (PERSONALSTAMM), nicht der Router
+$router->add('/fahrer', 'Standard\Controllers\HomeController', 'fahrer', ['auth' => false]);
+$router->add('/fahrer/registrieren', 'Standard\Controllers\RegistrierungController', 'fahrer', ['auth' => false]);
 
-// Geschuetzte Seiten (Default) -- gehoeren immer zum Mitarbeiterportal
+// Portaluebergreifend -- nur Login und Logout
+$router->add('/login',  'Standard\Controllers\AuthController', 'login',  ['auth' => false, 'portal' => Router::ALLE]);
+$router->add('/logout', 'Standard\Controllers\AuthController', 'logout', ['auth' => false, 'portal' => Router::ALLE]);
+
+// Geschuetzte Seiten (Default auth: true) -- Portal kommt aus dem Praefix
+$router->add('/mitarbeiter/adressen', 'Standard\Controllers\AdressenController', 'index');
+
+// FALSCH -- kein Praefix. Der Router weist die Route ab (DEBUG: 500 mit
+// Klartext, sonst 404), statt sie ungeschuetzt durchzulassen.
 $router->add('/adressen', 'Standard\Controllers\AdressenController', 'index');
 ```
 
@@ -1417,7 +1783,8 @@ $router->add('/adressen', 'Standard\Controllers\AdressenController', 'index');
 oder "oeffentlich" erwaehnt.
 
 `config/routes.php` ist nach Portalen gruppiert -- neue Routen in den passenden
-Block einsortieren, nicht einfach unten anhaengen.
+Block einsortieren, nicht einfach unten anhaengen. Fuer `Router::ALLE` braucht
+die Routen-Datei `use Core\Router;` am Dateianfang.
 
 ---
 
@@ -1593,18 +1960,35 @@ Der goldene Header-Hintergrund kommt automatisch aus `app.css` -- kein style auf
 - Custom-Controller erben von `core/BaseController.php`
 - Kein hardcodierter Verzeichnisname -- immer APP_BASE verwenden
 - Kein `required` Attribut auf dem Passwort-Feld im Login-Modal -- Validierung erfolgt serverseitig durch RATIOserver
+- Jedes Eingabefeld hat `maxlength` UND eine serverseitige Laengenpruefung --
+  die Grenze stammt aus der Zielspalte (siehe Abschnitt Feldlaengen)
+- Textlaengen mit `mb_strlen()` pruefen (die DB zaehlt Zeichen, nicht Bytes) --
+  `strlen()` nur beim Passwort, wo die Bcrypt-Grenze in Bytes gilt
 - Token IMMER aus `$_COOKIE['jwt_token']` lesen -- niemals aus `$_SESSION`
 - `\api_post()` in Controllern immer mit fuehrendem Backslash
-- Jeder `render()`-Aufruf gibt `'portal' => 'kunde'` oder `'portal' => 'mitarbeiter'` mit
+- Jeder `render()`-Aufruf gibt sein `'portal'` mit -- `'kunde'`, `'mitarbeiter'`
+  oder `'fahrer'` (Schluessel aus `core/Portal.php`)
+- Portalpfade, -labels und Registrierungslinks IMMER ueber `Core\Portal` --
+  nie ein Ternaeroperator wie `$portal === 'mitarbeiter' ? '/mitarbeiter' : '/'`
+  in Views oder Controllern. Mit drei Portalen ist so ein Ausdruck bereits falsch.
 - Navigation nur in `views/components/header.php` aendern -- nie im Layout, nie in einem View
 - Header verlinkt keine Features -- neue Module bekommen eine Kachel auf der Portal-Startseite
-- Kein Link, Button oder Hinweis der vom Kundenportal ins Mitarbeiterportal fuehrt
-- Router-Auth-Redirect (geschuetzte Routen) immer auf `/mitarbeiter?login=1` --
-  niemals auf `/` oder `/login`. Geschuetzte Routen gehoeren zum Mitarbeiterportal.
-  Sollen Kunden einmal geschuetzte Seiten bekommen, braucht die Route eine
-  Portalangabe -- der Router kennt sie heute nicht.
-- Login-/Logout-Redirects richten sich nach dem Feld `portal` aus der Whitelist
-  in `AuthController::PORTAL_ZIELE`
-- Jeder Logout-Link enthaelt `?portal=kunde` bzw. `?portal=mitarbeiter`
+- Kein Link, Button oder Hinweis der vom Kundenportal in ein internes Portal fuehrt
+- Jede neue Route liegt unter dem Praefix ihres Portals (`/mitarbeiter/...`,
+  `/kunde/...`, `/fahrer/...`) -- eine Route ohne Praefix wird abgewiesen.
+  `['portal' => Router::ALLE]` nur fuer `/login` und `/logout`
+- Modul-URLs aus `Portal::praefix()` bauen -- kein Praefix in Views oder
+  Controllern ausschreiben
+- Router-Auth-Redirect (geschuetzte Routen) immer auf die Startseite des Portals
+  DER ROUTE mit `?login=1` (`Portal::start($route['portal'])`) -- niemals fest
+  `/mitarbeiter`, niemals `/login` (existiert nur als POST-Route)
+- Zugriffsentscheidungen ausschliesslich ueber `Auth::portal()` /
+  `Portal::ausTyp()` -- niemals `Portal::name()` auf `role.typ` anwenden und
+  niemals `role.typ` selbst aus dem Token parsen
+- Login-/Logout-Redirects richten sich nach dem Feld `portal`, abgebildet ueber
+  `Portal::name()` -- unbekannte Werte landen im Kundenportal. Nach
+  erfolgreichem Login gewinnt das Portal des Tokens
+  (`Auth::portalAusToken()`)
+- Jeder Logout-Link enthaelt `?portal=..` mit dem eigenen Portalnamen
 - Keine JavaScript-Standard-Dialoge (`alert()`, `confirm()`, `prompt()`) --
   immer als wiederverwendbare Bootstrap-Modal-Komponente in `views/components/`

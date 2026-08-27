@@ -36,10 +36,10 @@ $highlight = static function (?string $text, string $term): string {
 };
 
 // Sortier-Link fuer den Tabellenkopf -- behaelt alle aktiven Filter (GET) bei.
-$sortLink = static function (string $col) use ($sortCol, $sortDir): string {
+$sortLink = static function (string $col) use ($sortCol, $sortDir, $modul_url): string {
     $newDir = ($col === $sortCol && $sortDir === 1) ? 'desc' : 'asc';
     $params = array_merge($_GET, ['sortcol' => $col, 'sortdir' => $newDir]);
-    return APP_BASE . '/einsatz?' . http_build_query($params);
+    return APP_BASE . $modul_url . '?' . http_build_query($params);
 };
 
 // Sortier-Pfeil fuer die aktive Spalte.
