@@ -34,7 +34,6 @@ use Core\Portal;
 
 class AuthController extends BaseController
 {
-
     /**
      * POST /login -- Login gegen RATIOserver verarbeiten.
      * Bei Erfolg: beide Cookies setzen, zurueck zur Portal-Startseite.
@@ -76,7 +75,7 @@ class AuthController extends BaseController
             'expires'  => time() + TOKEN_LIFETIME,
             'path'     => '/',
             'samesite' => 'Strict',
-            'secure'   => isset($_SERVER['HTTPS']),
+            'secure'   => $this->istHttps(),
             'httponly' => true,
         ]);
 
@@ -85,7 +84,7 @@ class AuthController extends BaseController
             'expires'  => time() + TOKEN_LIFETIME,
             'path'     => '/',
             'samesite' => 'Strict',
-            'secure'   => isset($_SERVER['HTTPS']),
+            'secure'   => $this->istHttps(),
             'httponly' => false,
         ]);
 
@@ -104,8 +103,8 @@ class AuthController extends BaseController
      */
     public function logout(): void
     {
-        setcookie('jwt_token', '', ['expires' => time() - 3600, 'path' => '/', 'samesite' => 'Strict', 'secure' => isset($_SERVER['HTTPS']), 'httponly' => true]);
-        setcookie('jwt_user',  '', ['expires' => time() - 3600, 'path' => '/', 'samesite' => 'Strict', 'secure' => isset($_SERVER['HTTPS']), 'httponly' => false]);
+        setcookie('jwt_token', '', ['expires' => time() - 3600, 'path' => '/', 'samesite' => 'Strict', 'secure' => $this->istHttps(), 'httponly' => true]);
+        setcookie('jwt_user',  '', ['expires' => time() - 3600, 'path' => '/', 'samesite' => 'Strict', 'secure' => $this->istHttps(), 'httponly' => false]);
 
         $portal = Portal::name((string)($_GET['portal'] ?? ''));
         $this->redirect(Portal::start($portal));

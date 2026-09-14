@@ -512,20 +512,60 @@ Nach dem Login werden ZWEI Cookies gesetzt:
 | `jwt_token` | JWT-Token | `true` | API-Authentifizierung, sicher gegen XSS |
 | `jwt_user` | Benutzername | `false` | Anzeige im Header (kein sensitiver Inhalt) |
 
+### Das secure-Flag -- niemals mit isset() bestimmen
+
+Beide Cookies bekommen ihr `secure`-Flag aus `BaseController::istHttps()`.
+Die Methode steht in `core/BaseController.php` und ist `protected` -- damit
+steht sie JEDEM Controller zur Verfuegung, nicht nur dem `AuthController`.
+Das ist Absicht: auch andere Controller loeschen die Cookies, etwa nach einer
+abgelaufenen Anmeldung.
+
+```php
+protected function istHttps(): bool
+{
+    return !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on';
+}
+```
+
+**Grenze der Erkennung:** erkannt wird nur eine direkt in diesem Apache
+terminierte TLS-Verbindung. Terminiert spaeter ein vorgelagerter Reverse-Proxy
+das TLS und reicht per HTTP weiter, ist `$_SERVER['HTTPS']` leer -- die Methode
+liefert `false`, obwohl der Browser ueber HTTPS verbunden ist, und die Cookies
+werden ohne `secure` gesetzt. Fuer so ein Setup muss zusaetzlich
+`$_SERVER['HTTP_X_FORWARDED_PROTO']` ausgewertet werden, aber NUR bei einem
+vertrauenswuerdigen Proxy: der Header ist sonst frei vom Client waehlbar.
+
+```php
+// RICHTIG
+'secure' => $this->istHttps(),
+
+// FALSCH -- manche Server- und PHP-Konfigurationen setzen HTTPS bei einem
+// HTTP-Zugriff auf den String 'off'. isset() ist dann true, das Cookie
+// bekaeme secure, und der Browser verwirft es ueber HTTP stillschweigend.
+// Die Anmeldung sieht erfolgreich aus, greift aber nicht -- ein Fehlerbild,
+// das sich nur auf manchen Zugriffswegen zeigt und schwer zu finden ist.
+'secure' => isset($_SERVER['HTTPS']),
+```
+
+Die Methode kapselt den Ausdruck bewusst, statt ihn an den vier setcookie-Stellen
+zu wiederholen -- genau diese Wiederholung hat den Fehler urspruenglich
+entstehen lassen. Braucht ein weiterer Controller dieselbe Pruefung, wandert sie
+nach `core/BaseController.php`, statt kopiert zu werden.
+
 ```php
 // Login -- beide Cookies setzen
 setcookie('jwt_token', $token, [
     'expires'  => time() + TOKEN_LIFETIME,
     'path'     => '/',
     'samesite' => 'Strict',
-    'secure'   => isset($_SERVER['HTTPS']),
+    'secure'   => $this->istHttps(),
     'httponly' => true,
 ]);
 setcookie('jwt_user', $username, [
     'expires'  => time() + TOKEN_LIFETIME,
     'path'     => '/',
     'samesite' => 'Strict',
-    'secure'   => isset($_SERVER['HTTPS']),
+    'secure'   => $this->istHttps(),
     'httponly' => false,
 ]);
 
@@ -536,8 +576,8 @@ $_COOKIE['jwt_token'] ?? ''
 $_COOKIE['jwt_user'] ?? ''
 
 // Logout -- beide Cookies loeschen
-setcookie('jwt_token', '', ['expires' => time() - 3600, 'path' => '/', 'samesite' => 'Strict', 'secure' => isset($_SERVER['HTTPS']), 'httponly' => true]);
-setcookie('jwt_user',  '', ['expires' => time() - 3600, 'path' => '/', 'samesite' => 'Strict', 'secure' => isset($_SERVER['HTTPS']), 'httponly' => false]);
+setcookie('jwt_token', '', ['expires' => time() - 3600, 'path' => '/', 'samesite' => 'Strict', 'secure' => $this->istHttps(), 'httponly' => true]);
+setcookie('jwt_user',  '', ['expires' => time() - 3600, 'path' => '/', 'samesite' => 'Strict', 'secure' => $this->istHttps(), 'httponly' => false]);
 ```
 
 **Spaetere SSO-Integration mit Angular:**
@@ -680,14 +720,14 @@ public function login(): void
         'expires'  => time() + TOKEN_LIFETIME,
         'path'     => '/',
         'samesite' => 'Strict',
-        'secure'   => isset($_SERVER['HTTPS']),
+        'secure'   => $this->istHttps(),
         'httponly' => true,
     ]);
     setcookie('jwt_user', $username, [
         'expires'  => time() + TOKEN_LIFETIME,
         'path'     => '/',
         'samesite' => 'Strict',
-        'secure'   => isset($_SERVER['HTTPS']),
+        'secure'   => $this->istHttps(),
         'httponly' => false,
     ]);
 
@@ -697,8 +737,8 @@ public function login(): void
 public function logout(): void
 {
     // Beide Cookies loeschen
-    setcookie('jwt_token', '', ['expires' => time() - 3600, 'path' => '/', 'samesite' => 'Strict', 'secure' => isset($_SERVER['HTTPS']), 'httponly' => true]);
-    setcookie('jwt_user',  '', ['expires' => time() - 3600, 'path' => '/', 'samesite' => 'Strict', 'secure' => isset($_SERVER['HTTPS']), 'httponly' => false]);
+    setcookie('jwt_token', '', ['expires' => time() - 3600, 'path' => '/', 'samesite' => 'Strict', 'secure' => $this->istHttps(), 'httponly' => true]);
+    setcookie('jwt_user',  '', ['expires' => time() - 3600, 'path' => '/', 'samesite' => 'Strict', 'secure' => $this->istHttps(), 'httponly' => false]);
     $this->redirect('/mitarbeiter');
 }
 ```
@@ -847,8 +887,8 @@ Fehler (HTTP 500):
 
 Bei HTTP 500 -- beide Cookies loeschen und auf Startseite umleiten:
 ```php
-setcookie('jwt_token', '', ['expires' => time() - 3600, 'path' => '/', 'samesite' => 'Strict', 'secure' => isset($_SERVER['HTTPS']), 'httponly' => true]);
-setcookie('jwt_user',  '', ['expires' => time() - 3600, 'path' => '/', 'samesite' => 'Strict', 'secure' => isset($_SERVER['HTTPS']), 'httponly' => false]);
+setcookie('jwt_token', '', ['expires' => time() - 3600, 'path' => '/', 'samesite' => 'Strict', 'secure' => $this->istHttps(), 'httponly' => true]);
+setcookie('jwt_user',  '', ['expires' => time() - 3600, 'path' => '/', 'samesite' => 'Strict', 'secure' => $this->istHttps(), 'httponly' => false]);
 $this->redirect('/mitarbeiter');
 ```
 
@@ -879,29 +919,101 @@ $this->redirect('/mitarbeiter');
 ## Konstanten in index.php
 
 ```php
-$scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? 'https' : 'http';
-define('BASE_URL', $scheme . '://' . $_SERVER['HTTP_HOST'] . '/ibapi');
+define('API_ORIGIN_MANUELL', '');           // leer = automatisch, siehe unten
+define('API_ORIGIN', $apiSchema . '://127.0.0.1:' . $apiPort);   // Loopback
+define('BASE_URL',   API_ORIGIN . '/ibapi');
 define('APP_BASE',  rtrim(dirname($_SERVER['SCRIPT_NAME']), '/'));
 define('DEBUG', true);  // Entwicklung: true -- Produktion: false
 define('RATE_LIMIT_AKTIV', true);  // nur zum Testen false -- siehe Abschnitt Registrierung
 ```
 
-### BASE_URL
-Volle URL fuer curl -- kein relativer Pfad, da curl absolute URLs benoetigt.
-**IMMER dynamisch ermitteln -- niemals hardcodieren.**
-`$_SERVER['HTTP_HOST']` liefert automatisch den richtigen Host und Port.
-`$_SERVER['HTTPS']` erkennt ob HTTP oder HTTPS verwendet wird.
+### API_ORIGIN und BASE_URL
 
-| Umgebung | BASE_URL |
+Volle URL fuer curl -- kein relativer Pfad, da curl absolute URLs benoetigt.
+
+**`BASE_URL` ist ein Loopback und wird NICHT aus dem Request abgeleitet.**
+PHP und RATIOserver laufen im selben Apache -- der Aufruf verlaesst die Maschine
+also nie und braucht weder DNS-Aufloesung noch ein gueltiges Zertifikat noch
+eine Firewall-Freigabe.
+
+Frueher wurde `BASE_URL` aus `$_SERVER['HTTP_HOST']` und `$_SERVER['HTTPS']`
+gebaut. Das war der Grund, warum der Login **lokal funktionierte und remote
+fehlschlug**: sobald ein Browser von aussen zugriff, rief PHP sich selbst unter
+der externen URL auf.
+
+| Zugriff des Browsers | alte BASE_URL | Ergebnis |
+|---|---|---|
+| `http://localhost/ratiophp` | `http://localhost/ibapi` | funktioniert |
+| `https://server.firma.de/ratiophp` | `https://server.firma.de/ibapi` | curl-Fehler 60 -- selbstsigniertes Zertifikat nicht vertrauenswuerdig |
+| `http://server.firma.de/ratiophp` | `http://server.firma.de/ibapi` | scheitert, wenn der Server sich selbst unter diesem Namen nicht erreicht |
+
+Der Transportfehler war dabei nicht erkennbar: `curl_exec()` liefert `false`,
+`api_post()` gibt `[]` zurueck, und der `AuthController` meldet lediglich
+"Login fehlgeschlagen" -- ununterscheidbar von falschen Zugangsdaten.
+
+### Beliebige Ports funktionieren ohne Konfiguration
+
+Schema UND Port stammen aus dem aktuellen Request. Beide setzt Apache selbst --
+anders als `HTTP_HOST`, das aus einem Client-Header stammt und deshalb nicht
+verwendbar ist. `SERVER_PORT` nennt immer den Port des Sockets, der diesen
+Request bedient, und passt damit **immer** zum Schema:
+
+```php
+$apiSchema = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? 'https' : 'http';
+$apiPort   = (int)($_SERVER['SERVER_PORT'] ?? ($apiSchema === 'https' ? 443 : 80));
+```
+
+| Zugriff des Browsers | daraus abgeleitete BASE_URL |
 |---|---|
-| Lokal HTTP Port 80 | `http://localhost/ibapi` |
-| Lokal HTTP Port 8080 | `http://localhost:8080/ibapi` |
-| Produktiv HTTPS | `https://meinserver.de/ibapi` |
+| `http://host/...` | `http://127.0.0.1:80/ibapi` |
+| `http://host:8080/...` | `http://127.0.0.1:8080/ibapi` |
+| `https://host/...` | `https://127.0.0.1:443/ibapi` |
+| `https://host:8443/...` | `https://127.0.0.1:8443/ibapi` |
+
+Der entscheidende Punkt: **der Loopback folgt dem Schema des Requests.** Wuerde
+bei einem HTTPS-Zugriff auf HTTP zurueckgefallen, waere der HTTP-Port unbekannt
+-- `SERVER_PORT` nennt dann ja den HTTPS-Port. Genau deshalb kein
+HTTP-Erzwingen und kein fest verdrahteter Fallback-Port.
+
+Der HTTPS-Loopback laeuft dabei gegen das meist selbstsignierte Zertifikat
+desselben Apache. `core/Api.php` schaltet die Zertifikatspruefung deshalb ab --
+**ausschliesslich** fuer Loopback-Ziele (`127.0.0.1`, `::1`, `localhost`):
+
+```php
+$ziel = parse_url(BASE_URL);
+$istLoopback = in_array($ziel['host'] ?? '', ['127.0.0.1', '::1', 'localhost'], true);
+
+if ($istLoopback && ($ziel['scheme'] ?? '') === 'https') {
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+}
+```
+
+Wer den Loopback belauschen koennte, sitzt bereits auf dem Server -- die
+Abschwaechung kostet dort nichts. Ausserhalb davon bleibt die Pruefung
+unangetastet: zeigt `API_ORIGIN_MANUELL` auf einen fremden HTTPS-Host, wird
+dessen Zertifikat weiterhin geprueft (live gegengeprueft -- der Aufruf
+scheitert dann mit curl-Fehler 60).
+
+### API_ORIGIN_MANUELL -- die Notbremse
+
+```php
+define('API_ORIGIN_MANUELL', '');   // leer = automatische Ableitung
+```
+
+Nur fuer Sonderfaelle, in denen die Ableitung nicht passt -- praktisch nur,
+wenn Apache nicht an `127.0.0.1` gebunden ist (`Listen` mit fester IP).
+Dann z.B. `'http://192.168.1.5:8080'`. Solange der Wert leer ist, greift die
+automatische Ableitung.
 
 **WICHTIG fuer Claude Code:**
-- Niemals `http://localhost/ibapi` hardcodieren
-- Niemals `https://` oder `http://` hardcodieren
-- Immer die Konstante `BASE_URL` verwenden
+- `BASE_URL` NIEMALS wieder aus `$_SERVER['HTTP_HOST']` bauen -- das ist genau
+  der behobene Fehler. `HTTP_HOST` stammt aus einem Client-Header;
+  `SERVER_PORT` dagegen von Apache und ist deshalb verwendbar
+- In Controllern und Views immer die Konstante `BASE_URL` verwenden -- nie eine
+  URL ausschreiben
+- `APP_BASE` bleibt dynamisch: das betrifft die Browser-Seite (Links, Redirects),
+  nicht den Server-zu-Server-Aufruf
 
 ### APP_BASE
 **IMMER dynamisch ermitteln -- niemals hardcodieren.**
@@ -938,11 +1050,13 @@ $_SESSION['jwt_token'] ?? ''
 ## API-Basisurl
 
 ```
-BASE_URL = http://<HTTP_HOST>/ibapi
+BASE_URL = http://127.0.0.1/ibapi
 ```
 
 Kein externer Hostname, kein abweichender Port -- PHP und RATIOserver laufen im selben Apache.
-`BASE_URL` wird dynamisch aus `$_SERVER['HTTP_HOST']` ermittelt -- siehe Konstanten in index.php.
+`BASE_URL` ist deshalb ein fester Loopback und haengt NICHT vom Zugriffsweg des
+Browsers ab -- Begruendung und Anpassung siehe Abschnitt **API_ORIGIN und BASE_URL**
+bei den Konstanten in index.php.
 `BASE_URL` muss eine vollstaendige URL sein, da curl relative Pfade nicht akzeptiert.
 
 ---
@@ -953,6 +1067,37 @@ Wichtig: RATIOserver verwendet fuer ALLE Operationen HTTP-POST -- auch fuer lese
 Zugriffe wie Listen oder Einzelsaetze. Es gibt kein GET, PUT oder DELETE.
 Der Unterschied zwischen Lesen und Schreiben ergibt sich ausschliesslich aus dem
 Endpunkt-Namen (getXxx vs. insertXxx) und dem JSON-Body.
+
+### Transportfehler werden NICHT verschluckt
+
+Ist der RATIOserver nicht erreichbar, gibt `api_post()` kein leeres Array
+zurueck, sondern eine Antwort in der ueblichen Form:
+
+```php
+[
+    'status'  => 'error',
+    'message' => '...',
+]
+```
+
+Damit landet die Meldung ohne Sonderbehandlung dort, wo Controller ohnehin
+`$response['message']` auslesen. Der Text richtet sich nach `DEBUG`:
+
+| `DEBUG` | Meldung |
+|---|---|
+| `true` | `RATIOserver nicht erreichbar unter <URL> -- curl-Fehler 7: ...` plus `error_log()` |
+| `false` | `Der Server ist derzeit nicht erreichbar. Bitte versuchen Sie es später erneut.` |
+
+In der Produktion also bewusst ohne interne Adresse, Port und curl-Details.
+
+**Warum das wichtig ist:** ohne diese Behandlung ist ein Verbindungsfehler von
+falschen Zugangsdaten nicht zu unterscheiden -- der Benutzer sieht in beiden
+Faellen nur "Login fehlgeschlagen". Genau dieses stumme Fehlerbild hat eine
+Fehlersuche mehrere Runden gekostet, als `BASE_URL` noch aus dem Request
+gebaut wurde.
+
+**Regel:** Diese Behandlung nicht entfernen und nicht in Controller kopieren --
+sie gehoert in `api_post()`, damit jeder Endpunkt sie bekommt.
 
 ```php
 function api_post(string $endpoint, array $data): array
@@ -1327,12 +1472,29 @@ $rows = $result['data'] ?? [];
 
 ### Abfrage ohne Parameter
 
-Wenn der SQL keine Platzhalter enthaelt, `params` weglassen:
+**`params` ist PFLICHT -- auch wenn der SQL keine Platzhalter enthaelt.**
+Dann wird ein leeres Objekt gesendet:
+
 ```php
+// RICHTIG -- leeres params mitgeben
+\api_post('/select', [
+    'sql'    => 'SELECT count(*) AS anzahl FROM adressen',
+    'params' => new \stdClass(),   // wird zu {} statt []
+]);
+
+// FALSCH -- der Endpunkt antwortet mit
+// {"status":"error","message":"Fehler beim Parsen des JSON: Wert 'params' nicht gefunden"}
 \api_post('/select', [
     'sql' => 'SELECT count(*) AS anzahl FROM adressen',
 ]);
 ```
+
+Achtung bei der Schreibweise: ein leeres PHP-Array wird von `json_encode()` zu
+`[]` kodiert, nicht zu `{}`. Deshalb `new \stdClass()` -- oder
+`json_encode(..., JSON_FORCE_OBJECT)`. Sobald mindestens ein Parameter
+enthalten ist, genuegt ein normales assoziatives Array.
+
+Live verifiziert am 2026-09-14 gegen den laufenden RATIOserver.
 
 ---
 
@@ -1910,7 +2072,10 @@ Beispiele:
 - Views verwenden Bootstrap 5 (CDN) fuer Komponenten -- Layout-CSS kommt aus app.css
 - Layout IMMER aus `ClaudeCodePatterns/layout.php` kopieren -- nie neu generieren
 - `app.css` IMMER aus `ClaudeCodePatterns/app.css` kopieren -- nie neu generieren
-- `core/Api.php` IMMER aus `ClaudeCodePatterns/Api.php` kopieren -- nie neu generieren
+- `core/Api.php` IMMER aus `ClaudeCodePatterns/Api.php` kopieren -- nie neu
+  generieren. **Abweichung vom Pattern, bewusst und nicht zurueckzubauen:**
+  `api_post()` behandelt Transportfehler (siehe Abschnitt **HTTP-Zugriff aus
+  PHP**). Beim Uebernehmen einer neuen Pattern-Version erneut einarbeiten
 - `views/components/debug.php` IMMER aus `ClaudeCodePatterns/debug.php` kopieren -- nie neu generieren
 - `views/components/pagination.php` bei Pagination IMMER aus `ClaudeCodePatterns/pagination-component.php` kopieren -- niemals neu generieren
 - `views/layout.php` muss folgende Zeile enthalten -- direkt nach `<?= $content ?? '' ?>`:

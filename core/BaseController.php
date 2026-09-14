@@ -50,4 +50,31 @@ class BaseController
     {
         $_SESSION['flash_success'] = $message;
     }
+
+    /**
+     * Laeuft der aktuelle Request ueber HTTPS?
+     *
+     * Steuert das secure-Flag der Login-Cookies. Steht hier und nicht im
+     * AuthController, weil auch andere Controller die Cookies loeschen --
+     * etwa nach einer abgelaufenen Anmeldung.
+     *
+     * Bewusst NICHT isset($_SERVER['HTTPS']): manche Server- und
+     * PHP-Konfigurationen setzen die Variable bei HTTP-Zugriffen auf den
+     * String 'off'. isset() waere dann true, das Cookie bekaeme secure --
+     * und der Browser verwirft es ueber HTTP stillschweigend. Die Anmeldung
+     * sieht erfolgreich aus, greift aber nicht.
+     *
+     * GRENZE: erkennt nur eine direkt in diesem Apache terminierte
+     * TLS-Verbindung. Terminiert spaeter ein vorgelagerter Reverse-Proxy das
+     * TLS und reicht per HTTP weiter, ist $_SERVER['HTTPS'] LEER -- die
+     * Methode liefert dann false, obwohl der Browser ueber HTTPS verbunden
+     * ist, und die Cookies werden ohne secure gesetzt. Fuer so ein Setup muss
+     * hier zusaetzlich $_SERVER['HTTP_X_FORWARDED_PROTO'] ausgewertet werden
+     * -- aber NUR, wenn dem Proxy vertraut werden kann: der Header ist sonst
+     * frei vom Client waehlbar.
+     */
+    protected function istHttps(): bool
+    {
+        return !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on';
+    }
 }
