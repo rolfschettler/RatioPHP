@@ -28,13 +28,27 @@
 
 namespace Standard\Controllers;
 
+use Core\Anfrage;
 use Core\Auth;
 use Core\BaseController;
 use Core\Fehler;
 use Core\Portal;
+use Core\RateLimit;
 
 class AuthController extends BaseController
 {
+    /**
+     * Fehlgeschlagene Anmeldungen je Zeitfenster (Core\RateLimit::FENSTER,
+     * 1 Stunde). Erfolgreiche Anmeldungen zaehlen nicht.
+     *
+     * Pro IP grosszuegiger: hinter einem Firmen-NAT teilen sich viele
+     * Mitarbeiter eine Adresse. Pro Konto knapper -- dort zielt Brute-Force
+     * hin. Nicht zu knapp: ein Angreifer kann ein fremdes Konto durch
+     * absichtliche Fehlversuche fuer den Rest des Fensters sperren.
+     */
+    private const LOGIN_MAX_IP    = 20;
+    private const LOGIN_MAX_KONTO = 10;
+
     /**
      * POST /login -- Login gegen RATIOserver verarbeiten.
      * Bei Erfolg: beide Cookies setzen, zurueck zur Portal-Startseite.
@@ -52,8 +66,22 @@ class AuthController extends BaseController
             return;
         }
 
-        $user     = $_POST['user']     ?? '';
-        $password = $_POST['password'] ?? '';
+        $user     = (string)($_POST['user']     ?? '');
+        $password = (string)($_POST['password'] ?? '');
+
+        // Brute-Force-Schutz: zwei Zaehler, pro IP und pro Konto. Es zaehlen
+        // nur FEHLSCHLAEGE -- der Versuch wird vorab gezaehlt (atomar, damit
+        // parallele Versuche nicht durchrutschen) und bei Erfolg oder
+        // Systemfehler wieder zurueckgenommen.
+        $ip    = Anfrage::ip();
+        $konto = RateLimit::schluessel($user);
+
+        if (RateLimit::ueberschritten($ip, 'login_ip', self::LOGIN_MAX_IP)
+            || RateLimit::ueberschritten($konto, 'login_konto', self::LOGIN_MAX_KONTO)) {
+            // Dieselbe Meldung fuer beide Zaehler -- verraet nichts ueber das Konto
+            $this->flashError('Zu viele fehlgeschlagene Anmeldeversuche -- bitte später erneut versuchen.');
+            $this->redirect(Portal::login($portal));
+        }
 
         // Login gegen RATIOserver
         $response = \api_post('/login', [
@@ -61,15 +89,24 @@ class AuthController extends BaseController
             'password' => $password,
         ]);
 
+        // Systemfehler (Server nicht erreichbar, ...) ist kein Fehlversuch --
+        // sonst sperrt ein Ausfall des Backends alle Benutzer aus
+        if (!empty($response['token']) || Fehler::istSystem($response)) {
+            RateLimit::zuruecknehmen($ip, 'login_ip');
+            RateLimit::zuruecknehmen($konto, 'login_konto');
+        }
+
         if (empty($response['token'])) {
             // Falsche Zugangsdaten erscheinen im wieder geoeffneten Login-Modal.
-            // Ein Systemfehler (Server nicht erreichbar, ...) steht bereits im
-            // reservierten Bereich -- dann bleibt das Modal zu, damit er
-            // sichtbar ist.
+            // Ein Systemfehler steht bereits im reservierten Bereich -- dann
+            // bleibt das Modal zu, damit er sichtbar ist.
             $this->apiFehler($response, 'Login fehlgeschlagen');
             $this->redirect(Fehler::istSystem($response) ? $ziel : Portal::login($portal));
-            return;
         }
+
+        // Erfolgreich angemeldet -- fruehere Fehlversuche dieses Kontos
+        // verfallen, ein Tippfehler von gestern zaehlt nicht weiter mit
+        RateLimit::zuruecksetzen($konto, 'login_konto');
 
         $token    = $response['token'];
         $username = $user;  // Benutzername direkt aus POST -- kein verifytoken noetig

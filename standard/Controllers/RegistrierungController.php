@@ -124,27 +124,26 @@
  *         oeffentliche Brute-Force-Flaeche auf Mitarbeiterkonten. Deshalb
  *         zwei Zaehler: pro IP und pro Loginname. Der Loginname wird nur als
  *         SHA-256-Hash abgelegt -- keine Klartext-Logins auf Platte.
- *     Ablage in einer JSON-Datei im System-Temp-Verzeichnis
- *     (sys_get_temp_dir()) -- bewusst NICHT im Web-Root, keine Datenbank-
- *     Verbindung noetig (PHP macht laut Vorgabe keine direkte DB-Anbindung).
+ *     Umsetzung und Ablage: core/RateLimit.php.
  */
 
 namespace Standard\Controllers;
 
+use Core\Anfrage;
 use Core\BaseController;
 use Core\Codec;
 use Core\Fehler;
 use Core\Portal;
 use Core\Pruefung;
+use Core\RateLimit;
 
 class RegistrierungController extends BaseController
 {
+    // Grenzen je Zeitfenster (Core\RateLimit::FENSTER, 1 Stunde)
     private const RATE_LIMIT_MAX           = 3;
     private const RATE_LIMIT_CHECK_MAX     = 30;
     private const RATE_LIMIT_MITARB_IP     = 10;
     private const RATE_LIMIT_MITARB_USER   = 5;
-    private const RATE_LIMIT_FENSTER       = 3600;   // 1 Stunde in Sekunden
-    private const RATE_LIMIT_DATEI         = 'ratiophp_registrierung_ratelimit.json';
 
     /** Zulaessige Anreden -- entsprechen den Werten im Adressbestand. */
     private const ANREDEN = ['Frau', 'Herr', 'Firma', 'Familie'];
@@ -388,8 +387,8 @@ class RegistrierungController extends BaseController
         $werte    = Pruefung::werteAusPost($felder);
         $eingaben = Pruefung::ohneGeheime($felder, $werte);
 
-        $ip = (string)($_SERVER['REMOTE_ADDR'] ?? '');
-        if ($ip !== '' && $this->rateLimitUeberschritten($ip, 'registrierung', self::RATE_LIMIT_MAX)) {
+        $ip = Anfrage::ip();
+        if (RateLimit::ueberschritten($ip, 'registrierung', self::RATE_LIMIT_MAX)) {
             $this->zeigeMitFehler(
                 'Zu viele Registrierungen von dieser IP-Adresse -- bitte später erneut versuchen.',
                 $eingaben,
@@ -553,13 +552,11 @@ class RegistrierungController extends BaseController
 
         // Zwei Zaehler: pro IP und pro Loginname. Der Loginname landet nur als
         // Hash in der Zaehlerdatei -- kein Klartext-Login auf Platte.
-        if ($ip !== ''
-            && $this->rateLimitUeberschritten($ip, 'mitarbeiterlogin_ip', self::RATE_LIMIT_MITARB_IP)) {
+        if (RateLimit::ueberschritten($ip, 'mitarbeiterlogin_ip', self::RATE_LIMIT_MITARB_IP)) {
             return 'Zu viele Versuche von dieser IP-Adresse -- bitte später erneut versuchen.';
         }
 
-        $loginSchluessel = hash('sha256', mb_strtoupper($loginname));
-        if ($this->rateLimitUeberschritten($loginSchluessel, 'mitarbeiterlogin_user', self::RATE_LIMIT_MITARB_USER)) {
+        if (RateLimit::ueberschritten(RateLimit::schluessel($loginname), 'mitarbeiterlogin_user', self::RATE_LIMIT_MITARB_USER)) {
             return 'Zu viele Versuche für diesen Loginnamen -- bitte später erneut versuchen.';
         }
 
@@ -643,8 +640,7 @@ class RegistrierungController extends BaseController
 
         // Die Pruefung verraet, ob eine Adresse registriert ist -- Limit
         // gegen das Durchprobieren fremder Adressen.
-        $ip = (string)($_SERVER['REMOTE_ADDR'] ?? '');
-        if ($ip !== '' && $this->rateLimitUeberschritten($ip, 'usernamecheck', self::RATE_LIMIT_CHECK_MAX)) {
+        if (RateLimit::ueberschritten(Anfrage::ip(), 'usernamecheck', self::RATE_LIMIT_CHECK_MAX)) {
             $this->json(['frei' => null, 'message' => '']);
             return;
         }
@@ -752,95 +748,5 @@ class RegistrierungController extends BaseController
             'felder'               => $this->felder($variante),
             'eingaben'             => $eingaben,
         ];
-    }
-
-    /**
-     * Ist das Rate-Limiting eingeschaltet?
-     *
-     * Abschalten geht nur in der Entwicklung: RATE_LIMIT_AKTIV = false wirkt
-     * ausschliesslich zusammen mit DEBUG = true. Bleibt das false versehentlich
-     * im Deployment stehen, greift das Limit dort trotzdem -- vorausgesetzt
-     * DEBUG ist wie vorgesehen false.
-     *
-     * Fehlt die Konstante ganz (aeltere index.php), ist das Limit aktiv.
-     */
-    private function rateLimitAktiv(): bool
-    {
-        $abgeschaltet = defined('RATE_LIMIT_AKTIV') && RATE_LIMIT_AKTIV === false;
-        $entwicklung  = defined('DEBUG') && DEBUG === true;
-
-        return !($abgeschaltet && $entwicklung);
-    }
-
-    /**
-     * Prueft und zaehlt einen Versuch fuer den angegebenen Schluessel und die
-     * angegebene Aktion. Atomar per Dateisperre (flock) -- Pruefung und
-     * Zaehlung in einem Aufwasch, damit parallele Requests sich nicht
-     * gegenseitig umgehen.
-     *
-     * @param string $schluessel Zaehler-Schluessel, z.B. IP oder Login-Hash
-     * @param string $aktion     Zaehler-Gruppe, z.B. 'registrierung'
-     * @param int    $max        Maximale Versuche im Zeitfenster
-     * @return bool true, wenn das Limit bereits erreicht ist (Versuch NICHT
-     *              gezaehlt) -- false, wenn der Versuch noch erlaubt war
-     *              (wurde gezaehlt).
-     */
-    private function rateLimitUeberschritten(string $schluessel, string $aktion, int $max): bool
-    {
-        // Zum Testen abgeschaltet -- es wird nichts geprueft und nichts
-        // gezaehlt, die Zaehlerdatei bleibt unberuehrt.
-        if (!$this->rateLimitAktiv()) {
-            return false;
-        }
-
-        $pfad = sys_get_temp_dir() . '/' . self::RATE_LIMIT_DATEI;
-
-        $handle = fopen($pfad, 'c+');
-        if ($handle === false) {
-            // Datei nicht verfuegbar -- Limit kann nicht geprueft werden,
-            // Registrierung deswegen nicht blockieren.
-            return false;
-        }
-
-        flock($handle, LOCK_EX);
-
-        $inhalt = stream_get_contents($handle);
-        $daten  = json_decode((string)$inhalt, true);
-        $daten  = is_array($daten) ? $daten : [];
-
-        $jetzt      = time();
-        $grenze     = $jetzt - self::RATE_LIMIT_FENSTER;
-        $zaehler    = is_array($daten[$aktion] ?? null) ? $daten[$aktion] : [];
-        $zeitpunkte = array_values(array_filter((array)($zaehler[$schluessel] ?? []), static fn($t) => $t > $grenze));
-
-        $ueberschritten = count($zeitpunkte) >= $max;
-
-        if (!$ueberschritten) {
-            $zeitpunkte[]         = $jetzt;
-            $zaehler[$schluessel] = $zeitpunkte;
-
-            // Alle Schluessel ohne Versuche im aktuellen Zeitfenster
-            // entfernen -- sonst waechst die Datei unbegrenzt.
-            foreach ($zaehler as $einSchluessel => $ts) {
-                $ts = array_values(array_filter((array)$ts, static fn($t) => $t > $grenze));
-                if (empty($ts)) {
-                    unset($zaehler[$einSchluessel]);
-                } else {
-                    $zaehler[$einSchluessel] = $ts;
-                }
-            }
-
-            $daten[$aktion] = $zaehler;
-
-            ftruncate($handle, 0);
-            rewind($handle);
-            fwrite($handle, json_encode($daten));
-            fflush($handle);
-        }
-
-        flock($handle, LOCK_UN);
-        fclose($handle);
-
-        return $ueberschritten;
     }
 }

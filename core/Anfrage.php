@@ -37,6 +37,19 @@ class Anfrage
     }
 
     /**
+     * IP-Adresse des Clients -- '' wenn unbekannt.
+     *
+     * Bewusst REMOTE_ADDR und nicht X-Forwarded-For: der Header ist frei vom
+     * Client waehlbar, ein Angreifer koennte damit jedes Rate-Limit umgehen.
+     * Hinter einem Reverse-Proxy steht hier dessen Adresse -- dann muss der
+     * Header ausgewertet werden, aber NUR fuer diesen vertrauenswuerdigen Proxy.
+     */
+    public static function ip(): string
+    {
+        return (string)($_SERVER['REMOTE_ADDR'] ?? '');
+    }
+
+    /**
      * Leitet auf einen Pfad innerhalb der App um (APP_BASE wird vorangestellt)
      * und beendet den Request.
      */

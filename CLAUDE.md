@@ -33,7 +33,8 @@ Entwickler:
 │   ├── Fehler.php                  <- System- vs. Benutzerfehler (siehe Abschnitt Fehlerbehandlung)
 │   ├── Meldungen.php               <- Einziger Meldungsspeicher (System, Benutzer, Erfolg)
 │   ├── Pruefung.php                <- Formularpruefung aus Feld-Definitionen
-│   ├── Anfrage.php                 <- Routenpfad des Requests, umleiten()
+│   ├── Anfrage.php                 <- Routenpfad, Client-IP, umleiten()
+│   ├── RateLimit.php               <- Begrenzung von Versuchen (Login, Registrierung)
 │   └── View.php                    <- render() / layout()
 │
 ├── standard/                       <- Standardmodule (gleich fuer alle Kunden)
@@ -467,6 +468,47 @@ Regeln dabei:
   deshalb zwei Zaehler: pro IP und pro Loginname. Der Loginname landet nur als
   SHA-256-Hash in der Zaehlerdatei.
 
+### Rate-Limiting -- core/RateLimit.php
+
+Begrenzt Versuche je Aktion und Schluessel (IP oder Hash eines Namens) in
+einem gleitenden Fenster von 1 Stunde (`RateLimit::FENSTER`). Einzige
+Umsetzung -- kein Controller zaehlt selbst.
+
+| Aktion | Schluessel | Grenze/Stunde | Was zaehlt | Wo |
+|---|---|---|---|---|
+| `login_ip` | IP | 20 | nur **Fehlschlaege** | `AuthController` |
+| `login_konto` | Hash des Benutzernamens | 10 | nur **Fehlschlaege**, Erfolg setzt zurueck | `AuthController` |
+| `registrierung` | IP | 3 | jeder Absendeversuch, auch ungueltige | `RegistrierungController` |
+| `usernamecheck` | IP | 30 | jede Live-Pruefung | `RegistrierungController` |
+| `mitarbeiterlogin_ip` | IP | 10 | jeder USERS-Nachweis | `RegistrierungController` |
+| `mitarbeiterlogin_user` | Hash des Loginnamens | 5 | jeder USERS-Nachweis | `RegistrierungController` |
+
+Zwei Muster:
+
+```php
+// 1. Jeder Versuch zaehlt
+if (RateLimit::ueberschritten(Anfrage::ip(), 'registrierung', 3)) { ... }
+
+// 2. Nur Fehlschlaege zaehlen: vorab zaehlen, bei Erfolg zuruecknehmen.
+//    NICHT "erst pruefen, nach Fehlschlag zaehlen" -- parallele Versuche
+//    kaemen sonst alle durch die Luecke dazwischen.
+if (RateLimit::ueberschritten($ip, 'login_ip', 20)) { ... }
+// ... Versuch ...
+if ($erfolg) { RateLimit::zuruecknehmen($ip, 'login_ip'); }
+```
+
+- Namen nur ueber `RateLimit::schluessel($name)` -- SHA-256 der Grossschreibung,
+  kein Klartext auf Platte, Gross-/Kleinschreibung umgeht das Limit nicht.
+- IP nur ueber `Anfrage::ip()` (`REMOTE_ADDR`, nie `X-Forwarded-For` -- frei
+  vom Client waehlbar).
+- Leerer Schluessel wird nicht begrenzt; ist die Datei nicht beschreibbar,
+  wird nicht blockiert (fail-open).
+- Beim Login ist ein Systemfehler (Server nicht erreichbar) kein Fehlversuch --
+  sonst sperrt ein Backend-Ausfall alle Benutzer aus.
+- Die Meldung beim Login ist fuer beide Zaehler gleich und verraet nichts
+  ueber das Konto. Bekannte Grenze: ein Angreifer kann ein fremdes Konto
+  durch absichtliche Fehlversuche fuer bis zu eine Stunde sperren.
+
 ### Rate-Limiting zum Testen abschalten
 
 `index.php` kennt dafuer die Konstante `RATE_LIMIT_AKTIV`:
@@ -476,8 +518,8 @@ define('RATE_LIMIT_AKTIV', false);   // nur zum Testen
 ```
 
 Dann greift keine Grenze und es wird auch nichts gezaehlt -- die Zaehlerdatei
-entsteht gar nicht. Das gilt fuer alle Zaehler (Registrierung,
-Verfuegbarkeitspruefung, Mitarbeiter-Login).
+entsteht gar nicht. Das gilt fuer alle Zaehler (Login, Registrierung,
+Verfuegbarkeitspruefung, Mitarbeiternachweis).
 
 **Sicherung:** `false` wirkt ausschliesslich zusammen mit `DEBUG = true`. Bleibt es
 versehentlich im Deployment stehen, greift das Limit dort trotzdem -- solange `DEBUG`
@@ -487,7 +529,7 @@ eingecheckte Zustand ist immer `true`.
 Alternative ohne Codeaenderung -- nur die Zaehler zuruecksetzen:
 
 ```bash
-rm -f "$(php -r 'echo sys_get_temp_dir();')/ratiophp_registrierung_ratelimit.json"
+rm -f "$(php -r 'echo sys_get_temp_dir();')/ratiophp_ratelimit.json"
 ```
 
 Achtung: Apache und die PHP-CLI koennen unterschiedliche Temp-Verzeichnisse haben.
@@ -690,8 +732,13 @@ $ziel = $_POST['redirect_to'] ?? '/';
 private const PORTAL_ZIELE = ['kunde' => '/', 'mitarbeiter' => '/mitarbeiter'];
 ```
 
+Vor dem Aufruf von `/login`: Rate-Limit pro IP und pro Konto pruefen
+(`login_ip`, `login_konto` -- nur Fehlschlaege zaehlen, siehe Abschnitt
+**Rate-Limiting** unter Registrierung).
+
 Nach erfolgreichem Login:
-1. Token aus API-Antwort lesen
+1. Token aus API-Antwort lesen, Fehlversuch-Zaehler zuruecknehmen bzw.
+   den Kontozaehler zuruecksetzen
 2. Benutzernamen direkt aus `$_POST['user']` -- kein `verifytoken` noetig
 3. Beide Cookies setzen (`jwt_token` + `jwt_user`)
 4. Auf `/mitarbeiter` weiterleiten
