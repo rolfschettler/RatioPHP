@@ -36,11 +36,41 @@ class BaseController
     }
 
     /**
-     * Setzt eine Fehler-Flash-Message fuer den naechsten Request.
+     * Meldet einen BENUTZERFEHLER -- erscheint als Dialog
+     * (views/components/fehler-dialog.php), auch nach einem Redirect.
+     * Fuer Eingabefehler, die der Benutzer selbst beheben kann.
+     *
+     * Systemfehler (Server, Datenbank, Rechte) gehoeren NICHT hierher,
+     * sondern nach systemFehler() -- siehe core/Fehler.php.
      */
     protected function flashError(string $message): void
     {
-        $_SESSION['flash_error'] = $message;
+        Fehler::benutzer($message);
+    }
+
+    /**
+     * Meldet einen SYSTEMFEHLER -- erscheint im reservierten Bereich unter
+     * dem Header. Fehler aus \api_post() sind dort bereits gemeldet.
+     *
+     * @param string $detail Technische Details, nur bei DEBUG sichtbar
+     */
+    protected function systemFehler(string $message, string $detail = ''): void
+    {
+        Fehler::system($message, $detail);
+    }
+
+    /**
+     * Meldet den Fehler einer \api_post()-Antwort an der richtigen Stelle:
+     * Systemfehler sind bereits gemeldet und werden uebergangen, fachliche
+     * Ablehnungen des Endpunkts erscheinen als Dialog.
+     *
+     * @param string $ersatz Text, falls die Antwort keine message enthaelt
+     */
+    protected function apiFehler(array $antwort, string $ersatz): void
+    {
+        if (!Fehler::istSystem($antwort)) {
+            $this->flashError((string)($antwort['message'] ?? '') ?: $ersatz);
+        }
     }
 
     /**

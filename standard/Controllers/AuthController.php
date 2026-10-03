@@ -30,6 +30,7 @@ namespace Standard\Controllers;
 
 use Core\Auth;
 use Core\BaseController;
+use Core\Fehler;
 use Core\Portal;
 
 class AuthController extends BaseController
@@ -61,6 +62,14 @@ class AuthController extends BaseController
         ]);
 
         if (empty($response['token'])) {
+            // Systemfehler (Server nicht erreichbar, ...) stehen bereits im
+            // reservierten Bereich -- das Modal bleibt zu, damit er sichtbar ist
+            if (Fehler::istSystem($response)) {
+                $this->redirect($ziel);
+                return;
+            }
+
+            // Falsche Zugangsdaten -- Meldung erscheint im Login-Modal
             $this->flashError($response['message'] ?? 'Login fehlgeschlagen');
             // ?login=1 oeffnet das Modal automatisch per JS
             $this->redirect($ziel . (str_contains($ziel, '?') ? '&' : '?') . 'login=1');

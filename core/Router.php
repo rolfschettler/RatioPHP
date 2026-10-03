@@ -93,9 +93,8 @@ class Router
             $controller = new $route['controller']();
             $controller->{$route['action']}();
         } else {
-            // Route nicht gefunden
-            http_response_code(404);
-            echo '<h1>404 Not Found</h1>';
+            // Route nicht gefunden -- Systemfehler, Seite im passenden Portal
+            Fehler::seite(404, 'Die aufgerufene Seite existiert nicht.', 'Keine Route für ' . $uri);
         }
     }
 
@@ -140,9 +139,9 @@ class Router
         }
 
         if ($tokenPortal !== $routePortal) {
-            // Der Router hat kein flashError() -- das sitzt im BaseController.
-            // views/components/flash.php zeigt die Meldung auf der Zielseite.
-            $_SESSION['flash_error'] = 'Diese Seite gehört nicht zu Ihrem Portal.';
+            // Systemfehler, kein Benutzerfehler: der Benutzer hat nichts falsch
+            // eingegeben. Erscheint auf der Zielseite im reservierten Bereich.
+            Fehler::system('Diese Seite gehört nicht zu Ihrem Portal.', 'Route ' . $uri . ', Portal ' . $tokenPortal);
             $this->weiter(Portal::start($tokenPortal));
         }
     }
@@ -163,20 +162,14 @@ class Router
     private function konfigurationsfehler(string $uri): void
     {
         if (defined('DEBUG') && DEBUG) {
-            http_response_code(500);
-            echo '<h1>500 Konfigurationsfehler</h1>';
-            echo '<p>Die Route <code>' . htmlspecialchars($uri) . '</code> hat kein '
-               . 'Portal-Pr&auml;fix und keine Option <code>portal</code>.</p>';
-            echo '<p>Erlaubt sind die Pr&auml;fixe ';
-            foreach (Portal::alle() as $i => $portalName) {
-                echo ($i > 0 ? ', ' : '') . '<code>' . htmlspecialchars(Portal::praefix($portalName)) . '</code>';
-            }
-            echo ' sowie <code>\'portal\' =&gt; Router::ALLE</code> f&uuml;r '
-               . 'portal&uuml;bergreifende Routen.</p>';
-        } else {
-            http_response_code(404);
-            echo '<h1>404 Not Found</h1>';
+            $praefixe = array_map([Portal::class, 'praefix'], Portal::alle());
+            Fehler::seite(
+                500,
+                'Konfigurationsfehler: Die Route ' . $uri . ' hat kein Portal-Präfix.',
+                'Erlaubt sind die Präfixe ' . implode(', ', $praefixe)
+                . " sowie 'portal' => Router::ALLE für portalübergreifende Routen."
+            );
         }
-        exit;
+        Fehler::seite(404, 'Die aufgerufene Seite existiert nicht.');
     }
 }

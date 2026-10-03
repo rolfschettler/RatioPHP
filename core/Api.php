@@ -16,7 +16,9 @@ if (!function_exists('api_post')) {
      *
      * @param string $endpoint Endpunkt-Pfad, z.B. '/adressen/getAdressen'
      * @param array  $data     Request-Body als assoziatives Array
-     * @return array           Dekodierte JSON-Antwort (leeres Array bei Fehler)
+     * @return array           Dekodierte JSON-Antwort. Bei einem Systemfehler
+     *                         ['status' => 'error', 'message' => ..., 'fehlerart' => 'system']
+     *                         -- der Fehler ist dann bereits gemeldet (core/Fehler.php)
      */
     function api_post(string $endpoint, array $data): array
     {
@@ -60,35 +62,7 @@ if (!function_exists('api_post')) {
         curl_close($ch);
 
         $decoded = json_decode(is_string($response) ? $response : '', true);
-        $decoded = is_array($decoded) ? $decoded : [];
-
-        // Transportfehler NICHT verschlucken. Ohne diesen Block gibt die
-        // Funktion bei einem nicht erreichbaren RATIOserver ein leeres Array
-        // zurueck -- der Aufrufer sieht dann nur "Login fehlgeschlagen" und
-        // kann einen Verbindungsfehler nicht von falschen Zugangsdaten
-        // unterscheiden. Genau das hat eine Fehlersuche schon mehrere Runden
-        // gekostet, als BASE_URL noch aus dem Request gebaut wurde.
-        //
-        // Der Rueckgabewert behaelt die uebliche Form mit message, damit die
-        // Meldung ohne Sonderbehandlung in den Controllern ankommt.
-        if ($curlErrno !== 0 || $response === false) {
-            $klartext = 'RATIOserver nicht erreichbar unter ' . BASE_URL . $endpoint
-                      . ' -- curl-Fehler ' . $curlErrno . ': ' . $curlError;
-
-            if (defined('DEBUG') && DEBUG) {
-                error_log($klartext);
-            }
-
-            return [
-                'status'  => 'error',
-                // In der Produktion keine internen Adressen und Ports preisgeben
-                'message' => (defined('DEBUG') && DEBUG)
-                    ? $klartext
-                    // Echter Umlaut, keine HTML-Entity: die Meldung laeuft in
-                    // views/components/flash.php durch htmlspecialchars()
-                    : 'Der Server ist derzeit nicht erreichbar. Bitte versuchen Sie es später erneut.',
-            ];
-        }
+        $decoded = is_array($decoded) ? $decoded : null;
 
         // Debug-Logging -- nur wenn DEBUG aktiv. Das Debug-Panel
         // (views/components/debug.php) liest aus $GLOBALS['_api_debug_log'].
@@ -105,13 +79,24 @@ if (!function_exists('api_post')) {
             $GLOBALS['_api_debug_log'][] = [
                 'endpoint' => $endpoint,
                 'request'  => $data,
-                'response' => $decoded,
+                'response' => $decoded ?? ['curl' => $curlErrno . ' ' . $curlError],
                 'http'     => $http,
                 'ms'       => $ms,
                 'count'    => $count,
             ];
         }
 
-        return $decoded;
+        // Fehler NICHT verschlucken. Transport-, Rechte-, Datenbank- und
+        // 404-Fehler sind Systemfehler: core/Fehler.php meldet sie fuer den
+        // reservierten Bereich unter dem Header und liefert eine Antwort in
+        // der ueblichen Form (status, message) plus fehlerart = 'system'.
+        // Fachliche Ablehnungen kommen unveraendert zurueck -- die zeigt der
+        // Controller per flashError() als Dialog.
+        //
+        // Ohne diese Pruefung gibt die Funktion z.B. bei einem nicht
+        // erreichbaren RATIOserver ein leeres Array zurueck, und ein
+        // Verbindungsfehler ist von falschen Zugangsdaten nicht zu
+        // unterscheiden. Nicht entfernen und nicht in Controller kopieren.
+        return \Core\Fehler::pruefeApiAntwort($endpoint, $http, $response, $decoded, $curlErrno, $curlError);
     }
 }

@@ -36,6 +36,9 @@ $istMitarbeiter = ($portal === 'mitarbeiter');
     <!-- HEADER -- portalabhaengige Navigation -->
     <?php include VIEW_PATH . '/components/header.php'; ?>
 
+    <!-- SYSTEMFEHLER -- reservierter Bereich, immer sichtbar, scrollt nie weg -->
+    <?php include VIEW_PATH . '/components/systemfehler.php'; ?>
+
     <!-- ALLES OBERHALB DER TABELLE IN EINEM BLOCK -->
     <!-- Kein Border zwischen diesen Elementen -- verhindert Scroll-Luecke -->
     <div class="app-above-table">
@@ -99,6 +102,9 @@ $istMitarbeiter = ($portal === 'mitarbeiter');
 <?php // Login-Modal in BEIDEN Portalen -- das Modal wertet $portal selbst aus
       // und setzt daraus das Weiterleitungsziel sowie den Registrierungs-Link. ?>
 <?php include VIEW_PATH . '/components/login-modal.php'; ?>
+
+<?php // Benutzerfehler als Dialog -- Systemfehler stehen oben unter dem Header ?>
+<?php include VIEW_PATH . '/components/fehler-dialog.php'; ?>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>

@@ -133,6 +133,7 @@ namespace Standard\Controllers;
 
 use Core\BaseController;
 use Core\Codec;
+use Core\Fehler;
 use Core\Portal;
 
 class RegistrierungController extends BaseController
@@ -612,6 +613,12 @@ class RegistrierungController extends BaseController
         $insertResponse = \api_post('/registrierung/insertregistrierunglocal', $daten);
 
         if (($insertResponse['status'] ?? '') !== 'OK') {
+            // Systemfehler stehen bereits im reservierten Bereich -- Formular
+            // nur erneut zeigen, damit die Eingaben erhalten bleiben
+            if (Fehler::istSystem($insertResponse)) {
+                $this->render('registrierung/index', $this->viewDaten($variante, $eingaben));
+                return;
+            }
             $this->zeigeMitFehler(
                 $insertResponse['message'] ?? 'Registrierung fehlgeschlagen -- bitte später erneut versuchen.',
                 $eingaben,

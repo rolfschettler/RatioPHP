@@ -73,6 +73,10 @@ define('TOKEN_LIFETIME', 900 * 60);
 require ROOT_PATH . '/vendor/autoload.php';
 require ROOT_PATH . '/core/Api.php';
 
+// Nicht abgefangene Ausnahmen und fatale PHP-Fehler als Systemfehler im
+// Layout anzeigen statt als weisse Seite -- siehe core/Fehler.php
+Core\Fehler::registriereHandler();
+
 // ============================================================================
 // 4. Router instanziieren
 // ============================================================================

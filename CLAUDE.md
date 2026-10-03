@@ -30,6 +30,7 @@ Entwickler:
 │   ├── BaseController.php          <- Basis fuer alle Controller
 │   ├── Portal.php                  <- Definition der Portale (Start, Praefix, Label, Registrierung)
 │   ├── Codec.php                   <- Codieren/DeCodieren aus rechtelib.pas (USERS.passwort)
+│   ├── Fehler.php                  <- System- vs. Benutzerfehler (siehe Abschnitt Fehlerbehandlung)
 │   └── View.php                    <- render() / layout()
 │
 ├── standard/                       <- Standardmodule (gleich fuer alle Kunden)
@@ -56,7 +57,9 @@ Entwickler:
 │   └── components/
 │       ├── header.php              <- Portalabhaengige Navigation (siehe Abschnitt Portalstruktur)
 │       ├── login-modal.php         <- Login-Modal (nur Mitarbeiterportal)
-│       ├── flash.php               <- Fehler- und Erfolgsmeldungen
+│       ├── flash.php               <- Erfolgsmeldungen
+│       ├── systemfehler.php        <- Reservierter Bereich fuer Systemfehler (unter dem Header)
+│       ├── fehler-dialog.php       <- Dialog fuer Benutzerfehler
 │       └── pagination.php          <- Bootstrap-Pagination (siehe Abschnitt Pagination)
 │
 ├── config/
@@ -1068,27 +1071,22 @@ Zugriffe wie Listen oder Einzelsaetze. Es gibt kein GET, PUT oder DELETE.
 Der Unterschied zwischen Lesen und Schreiben ergibt sich ausschliesslich aus dem
 Endpunkt-Namen (getXxx vs. insertXxx) und dem JSON-Body.
 
-### Transportfehler werden NICHT verschluckt
+### Fehler werden NICHT verschluckt
 
-Ist der RATIOserver nicht erreichbar, gibt `api_post()` kein leeres Array
-zurueck, sondern eine Antwort in der ueblichen Form:
+`api_post()` reicht jede Antwort an `Core\Fehler::pruefeApiAntwort()` weiter.
+Systemfehler (Transport, 401, 403, 404, Datenbank) werden dort gemeldet und
+kommen in der ueblichen Form zurueck:
 
 ```php
 [
-    'status'  => 'error',
-    'message' => '...',
+    'status'    => 'error',
+    'message'   => 'Für diese Funktion fehlt Ihnen die Berechtigung. ...',
+    'fehlerart' => 'system',
+    'http'      => 403,
 ]
 ```
 
-Damit landet die Meldung ohne Sonderbehandlung dort, wo Controller ohnehin
-`$response['message']` auslesen. Der Text richtet sich nach `DEBUG`:
-
-| `DEBUG` | Meldung |
-|---|---|
-| `true` | `RATIOserver nicht erreichbar unter <URL> -- curl-Fehler 7: ...` plus `error_log()` |
-| `false` | `Der Server ist derzeit nicht erreichbar. Bitte versuchen Sie es später erneut.` |
-
-In der Produktion also bewusst ohne interne Adresse, Port und curl-Details.
+Details und Klassifizierung im Abschnitt **Fehlerbehandlung**.
 
 **Warum das wichtig ist:** ohne diese Behandlung ist ein Verbindungsfehler von
 falschen Zugangsdaten nicht zu unterscheiden -- der Benutzer sieht in beiden
@@ -1098,6 +1096,54 @@ gebaut wurde.
 
 **Regel:** Diese Behandlung nicht entfernen und nicht in Controller kopieren --
 sie gehoert in `api_post()`, damit jeder Endpunkt sie bekommt.
+
+---
+
+## Fehlerbehandlung
+
+Zwei Fehlerarten, getrennt angezeigt. Zentrale Klasse: `core/Fehler.php`.
+
+| Art | Beispiele | Anzeige | Melden |
+|---|---|---|---|
+| **Systemfehler** | Server/Port nicht erreichbar, Datenbankfehler, fehlende Rolle auf einen Endpunkt (403), Seite/Endpunkt existiert nicht (404), Token ungueltig (401), PHP-Ausnahme | reservierter Bereich `<div id="app-systemfehler">` direkt unter dem Header (`views/components/systemfehler.php`) -- scrollt nie weg | automatisch durch `\api_post()`, Router und Exception-Handler; sonst `$this->systemFehler($text, $detail)` |
+| **Benutzerfehler** | Pflichtfeld leer, Feld zu lang, Registrierung vom Endpunkt fachlich abgelehnt | Bootstrap-Dialog (`views/components/fehler-dialog.php`), oeffnet sich automatisch | `$this->flashError($text)` |
+
+Beide liegen in der Session und ueberleben damit einen Redirect. Falsches
+Passwort beim Login ist ein Benutzerfehler, erscheint aber im Login-Modal
+(`?login=1`) statt im Dialog.
+
+### Klassifizierung der RATIOserver-Antworten
+
+Verifiziert gegen `WebModuleUnit1.pas` (`DefActionHandler`, `WebModuleException`):
+
+| Antwort | Art | Herkunft im Backend |
+|---|---|---|
+| curl-Fehler | System | Server/Port nicht erreichbar |
+| HTTP 401 | System -- **ausser bei `/login`** (falsches Passwort) | `DoVerifyToken` |
+| HTTP 403 "Keine Berechtigung für diesen Endpunkt." | System | Rollenpruefung `HasRouteAccess` gegen `role.rollen` |
+| HTTP 404 | System | Pfad im Router nicht gefunden |
+| HTTP 400 bzw. Meldung beginnt mit `[FireDAC]` | System | `EFDDBEngineException` -- SQL-/Verbindungsfehler |
+| keine JSON-Antwort mit HTTP >= 400 | System | Absturz / falsches Ziel |
+| HTTP 500 mit `message` | **Benutzer** | fachliche Ablehnung, z.B. "Benutzer ist nicht im Personalstamm vorhanden." |
+
+Die Rollenpruefung: `role.rollen` (Komma-Liste, Blaupausen wie `@mitarbeiter`
+aufgeloest) muss `supervisor`, eine Rolle der Route oder den Endpunkt selbst
+(`/dispo/*`) enthalten. Leere Rollen = keine Einschraenkung.
+
+### Regeln fuer Claude Code
+
+- Fehler einer `\api_post()`-Antwort mit `$this->apiFehler($antwort, 'Ersatztext')`
+  melden -- Systemfehler sind dann schon gemeldet und erscheinen NICHT doppelt
+  als Dialog. Alternativ `Fehler::istSystem($antwort)` pruefen.
+- Systemfehler NIE per `flashError()` melden, Benutzerfehler NIE per
+  `systemFehler()`.
+- Technische Details (Endpunkt, HTTP-Status, Servermeldung, Datei:Zeile) nur
+  als `$detail` -- sichtbar ausschliesslich bei `DEBUG`.
+- Der Tag `#app-systemfehler` wird immer ausgegeben (leer mit `hidden`) und ist
+  ausschliesslich fuer Systemfehler reserviert.
+- Unbekannte Routen, Konfigurationsfehler und nicht abgefangene Ausnahmen
+  rendern ueber `Fehler::seite()` eine Fehlerseite im Layout des passenden
+  Portals (`standard/Views/fehler/index.php`) -- keine nackten `<h1>404</h1>`.
 
 ```php
 function api_post(string $endpoint, array $data): array
@@ -1713,13 +1759,16 @@ Primaerfarbe (Blau, Gruen, Violett) bleibt `--on-primary` Weiss.
 Fuer Details siehe `ClaudeCodePatterns/layout-pattern.md`.
 
 **Abweichung vom Pattern -- bewusst und nicht zurueckzubauen:**
-`views/layout.php` weicht in drei Punkten von `ClaudeCodePatterns/layout.php` ab,
-weil das Pattern die Portalstruktur nicht kennt:
+`views/layout.php` weicht in fuenf Punkten von `ClaudeCodePatterns/layout.php` ab,
+weil das Pattern die Portalstruktur und die Fehlerbehandlung nicht kennt:
 
 1. Der Header-Block ist durch `include VIEW_PATH . '/components/header.php'` ersetzt.
 2. Das Login-Modal ist ohne Bedingung eingebunden -- jedes Portal hat ein Login,
    die Komponente wertet `$portal` selbst aus.
 3. Der Benutzername im Footer erscheint in jedem Portal, sobald angemeldet.
+4. Direkt nach dem Header: `include VIEW_PATH . '/components/systemfehler.php'`
+   (reservierter Systemfehler-Bereich).
+5. Nach dem Login-Modal: `include VIEW_PATH . '/components/fehler-dialog.php'`.
 
 Ebenso weicht `core/Router.php` deutlich ab -- das Pattern kennt keine Portale:
 
@@ -1732,7 +1781,7 @@ Ebenso weicht `core/Router.php` deutlich ab -- das Pattern kennt keine Portale:
 
 Dazu kommt `core/Auth.php` -- eine Datei, die es im Pattern nicht gibt.
 
-Beim Uebernehmen einer neuen Pattern-Version diese drei Layout-Punkte und alle
+Beim Uebernehmen einer neuen Pattern-Version diese fuenf Layout-Punkte und alle
 vier Router-Punkte erneut einarbeiten -- nicht das Pattern blind ueberkopieren.
 
 ### Layout-Variablen
