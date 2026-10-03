@@ -18,6 +18,7 @@
     --text-color:          #0D2438;   /* Text auf weissem/hellem Hintergrund */
     --border-color:        #D9E8F5;   /* Trennlinien, Tabellenrahmen */
     --surface-muted:       #F2F8FD;   /* Toolbar-Hintergrund, Tabellenzeilen-Hover */
+    --frame-color:         silver;    /* Rahmen um Tabellen-Container (z.B. Registrierungen) */
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }

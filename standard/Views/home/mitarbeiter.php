@@ -66,7 +66,7 @@ $registrierLink = Portal::registrierung($portal ?? 'mitarbeiter');
                                style="background:var(--surface-muted);border:1px solid var(--border-color);color:inherit;">
                                 <i class="bi bi-people mb-2" style="font-size:1.6rem;color:var(--primary-color-dark);"></i>
                                 <h3 class="h6 fw-bold mb-1" style="color:var(--text-color);">Registrierungen</h3>
-                                <p class="small text-muted mb-0">Portalzug&auml;nge suchen, bearbeiten und l&ouml;schen.</p>
+                                <p class="small text-muted mb-0">Portalzug&auml;nge und Rollenvorlagen verwalten.</p>
                             </a>
                         </div>
                     </div>

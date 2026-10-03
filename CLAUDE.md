@@ -66,6 +66,7 @@ Entwickler:
 │       ├── flash.php               <- Erfolgsmeldungen
 │       ├── systemfehler.php        <- Reservierter Bereich fuer Systemfehler (unter dem Header)
 │       ├── fehler-dialog.php       <- Dialog fuer Benutzerfehler
+│       ├── tag-auswahl.php         <- Mehrfachauswahl mit Autocomplete (Rollen)
 │       └── pagination.php          <- Bootstrap-Pagination (siehe Abschnitt Pagination)
 │
 ├── config/
@@ -467,6 +468,39 @@ Regeln dabei:
 - Das Formular ist eine oeffentliche Brute-Force-Flaeche auf Mitarbeiterkonten,
   deshalb zwei Zaehler: pro IP und pro Loginname. Der Loginname landet nur als
   SHA-256-Hash in der Zaehlerdatei.
+
+### Rollenvorlagen (Blaupausen)
+
+Saetze in REGISTRIERUNG mit `username = '@NAME'` (typ `NULL`, kein Passwort)
+sind keine Zugaenge, sondern Rollenvorlagen. Der Login loest einen Eintrag
+`@NAME` in den Rollen eines Zugangs in die Rollen dieses Satzes auf
+(`ResolveRoleBlueprints` in `DataModulLoginClass.pas`). Die Konfiguration liegt
+deshalb **ausschliesslich in REGISTRIERUNG** -- eine PHP-Konfigurationsdatei
+waere wirkungslos.
+
+Gepflegt werden sie in der Registrierungsverwaltung, Reiter „Rollenvorlagen“
+(`/mitarbeiter/registrierungen?ansicht=vorlagen`, Actions `vorlage*` im
+`RegistrierungsverwaltungController`).
+
+- **Systemvorlagen** = `'@' . mb_strtoupper($portal)` fuer jedes Portal aus
+  `Portal::alle()`. `insertregistrierung(local)` weist sie neuen Zugaengen
+  automatisch zu -- bearbeitbar, aber nie loeschbar. Ein neues Portal bringt
+  seine Vorlage ohne Codeaenderung mit.
+- **Eigene Vorlagen** loeschbar nur, solange kein Zugang sie verwendet.
+- Keine Verschachtelung: `@`-Eintraege IN einer Vorlage werden nicht
+  aufgeloest und deshalb abgelehnt.
+- Leere Vorlage ist erlaubt -- `@NAME` bleibt beim Login in der Liste, ergibt
+  also keine Rechte (bei einem ZUGANG hiesse leer dagegen voller Zugriff).
+- Anlegen in zwei Schritten: `insertregistrierung` nimmt `rollen` nicht an
+  und bekommt bewusst kein `typ`; danach `nr` ueber den Namen holen und
+  `updateregistrierung` mit `rollen`. Live verifiziert am 2026-10-03.
+- Die Registrierungsverwaltung (beide Ansichten) ist auf 1600 px Breite
+  begrenzt und zentriert (`BREITE_MAX` im Controller).
+- **Bewusste Ausnahme von der Tabellenregel:** Der Container um die Tabelle
+  traegt den Rahmen (`--frame-color`) und scrollt selbst
+  (`max-height:100%;overflow:auto`), damit die Tabelle innerhalb des Rahmens
+  scrollt. Beide Richtungen am Container -- nur `overflow-x` wuerde den
+  `sticky`-Tabellenkopf aus `app.css` beim vertikalen Scrollen loesen.
 
 ### Rate-Limiting -- core/RateLimit.php
 
@@ -1792,6 +1826,7 @@ egal welches Kundenthema gerade aktiv ist.
     --text-color:          #0D2438;   /* Text auf weissem/hellem Hintergrund */
     --border-color:        #D9E8F5;   /* Trennlinien, Tabellenrahmen */
     --surface-muted:       #F2F8FD;   /* Toolbar-Hintergrund, Tabellenzeilen-Hover */
+    --frame-color:         silver;    /* Rahmen um Tabellen (z.B. Registrierungen) */
 }
 ```
 
@@ -1815,6 +1850,7 @@ Diese zwei Variablen NIE vertauschen -- sonst entstehen Buttons mit schlechtem K
 | `--text-color` | Normaler Text/Ueberschriften auf weissem Hintergrund |
 | `--border-color` | Tabellenlinien, Trennlinien, Toolbar-Border |
 | `--surface-muted` | Toolbar-Hintergrund, Tabellenzeilen-Hover |
+| `--frame-color` | Rahmen um den Container einer Tabelle (`border:1px solid var(--frame-color)` am umschliessenden `div`, nicht am `table`), z.B. Registrierungsverwaltung |
 
 ### Zentrale Button-Klasse
 

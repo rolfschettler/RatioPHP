@@ -20,6 +20,10 @@ use Core\View;
 /** @var array  $felder         Feld-Definitionen des Bearbeiten-Dialogs */
 /** @var string $modul_url      Modulpfad ohne APP_BASE */
 /** @var string $eigener        Benutzername des Angemeldeten, gross */
+/** @var int    $breiteMax      Maximale Seitenbreite in Pixel (zentriert) */
+/** @var string $fSort          Sortierte Spalte ('username'|'typ'|'letzter_login') */
+/** @var string $fRichtung      Sortierrichtung ('auf'|'ab') */
+/** @var array  $sortLinks      Spalte => [href, icon, aktiv] fuer die Spaltenkoepfe */
 
 $h = static fn($v): string => htmlspecialchars((string)($v ?? ''), ENT_QUOTES);
 
@@ -53,24 +57,36 @@ $typAnzeige = static function (string $typ) use ($typen, $h): string {
          . ($typ !== '' ? $h($typ) : 'ohne') . ' <i class="bi bi-exclamation-triangle"></i></span>';
 };
 
-// Aktuelle Filter -- werden von beiden Dialogen mitgeschickt, damit die
-// Liste nach dem Speichern/Loeschen mit denselben Filtern erscheint.
+// Aktuelle Filter und Sortierung -- werden von beiden Dialogen mitgeschickt,
+// damit die Liste nach dem Speichern/Loeschen unveraendert erscheint.
 $filterFelder = '<input type="hidden" name="f_typ" value="' . $h($_GET['typ'] ?? '') . '">'
-              . '<input type="hidden" name="f_suche" value="' . $h($fSuche) . '">';
+              . '<input type="hidden" name="f_suche" value="' . $h($fSuche) . '">'
+              . '<input type="hidden" name="f_sort" value="' . $h($fSort) . '">'
+              . '<input type="hidden" name="f_richtung" value="' . $h($fRichtung) . '">';
+
+// Sortierbarer Spaltenkopf -- Link mit Richtungssymbol, aria-sort fuer Screenreader.
+$sortKopf = static function (string $feld, string $text) use ($sortLinks, $fRichtung, $h): string {
+    $l    = $sortLinks[$feld];
+    $aria = $l['aktiv'] ? ' aria-sort="' . ($fRichtung === 'ab' ? 'descending' : 'ascending') . '"' : '';
+    return '<th' . $aria . '><a href="' . $h($l['href']) . '" class="text-reset text-decoration-none text-nowrap"'
+         . ' title="Nach ' . $h($text) . ' sortieren">' . $h($text)
+         . ' <i class="bi ' . $h($l['icon']) . ($l['aktiv'] ? '' : ' opacity-50') . '"></i></a></th>';
+};
 ?>
+<div class="mx-auto w-100" style="max-width:<?= (int)$breiteMax ?>px;max-height:100%;overflow:auto;border:1px solid var(--frame-color);">
 <table class="app-table" style="min-width:1100px;">
     <thead>
         <tr>
             <th>Aktionen</th>
             <th>Nr.</th>
-            <th>Benutzername</th>
+            <?= $sortKopf('username', 'Benutzername') ?>
             <th>E-Mail</th>
-            <th>Typ</th>
+            <?= $sortKopf('typ', 'Typ') ?>
             <th>Rollen</th>
             <th>Status</th>
             <th>Kennziffer</th>
             <th>Erstellt</th>
-            <th>Letzter Login</th>
+            <?= $sortKopf('letzter_login', 'Letzter Login') ?>
         </tr>
     </thead>
     <tbody>
@@ -115,6 +131,10 @@ $filterFelder = '<input type="hidden" name="f_typ" value="' . $h($_GET['typ'] ??
                 <td><?= $highlight($r['email'] ?? '') ?></td>
                 <td><?= $typAnzeige($typ) ?></td>
                 <td>
+                    <?php // max-width wirkt an einer Tabellenzelle nicht -- deshalb am inneren div.
+                          // Was nicht in 400px passt, endet in "...", der Tooltip zeigt alle Rollen. ?>
+                    <div class="text-truncate" style="max-width:400px;"
+                         title="<?= $h(implode(', ', $r['rollen_liste'])) ?>">
                     <?php foreach ($r['rollen_liste'] as $rolle): ?>
                         <span class="badge rounded-pill" style="background:var(--primary-color-light);color:var(--text-color);"><?= $h($rolle) ?></span>
                     <?php endforeach; ?>
@@ -123,6 +143,7 @@ $filterFelder = '<input type="hidden" name="f_typ" value="' . $h($_GET['typ'] ??
                             keine <i class="bi bi-exclamation-triangle"></i>
                         </span>
                     <?php endif; ?>
+                    </div>
                 </td>
                 <td>
                     <?php if ($gesperrt): ?>
@@ -139,6 +160,7 @@ $filterFelder = '<input type="hidden" name="f_typ" value="' . $h($_GET['typ'] ??
         <?php endif; ?>
     </tbody>
 </table>
+</div>
 
 <?php
 // ---------------------------------------------------------------------------
@@ -193,7 +215,32 @@ echo View::komponente('modal', [
         </fieldset>
         <p class="small text-muted mt-3 mb-0 d-none" data-feld="eigen-hinweis">
             <i class="bi bi-info-circle me-1"></i>Das ist Ihr eigener Zugang &ndash; Status und Rollen lassen sich hier nicht ändern.
-        </p>',
+        </p>
+        <div class="border-top mt-3 pt-3">
+            <button type="button" class="btn btn-link p-0 fw-semibold text-decoration-none" style="color:var(--primary-color-dark);"
+                    data-bs-toggle="collapse" data-bs-target="#regPasswortBereich"
+                    aria-expanded="false" aria-controls="regPasswortBereich">
+                <i class="bi bi-key me-1"></i>Neues Passwort setzen <i class="bi bi-chevron-down small"></i>
+            </button>
+            <div class="collapse" id="regPasswortBereich">
+                <div class="pt-3">
+                    <div class="mb-3">
+                        <label class="form-label" for="regPasswortNeu">' . $h($felder['passwort_neu']['bezeichnung']) . '</label>
+                        <input type="password" class="form-control" id="regPasswortNeu" name="passwort_neu"
+                               autocomplete="new-password"' . Pruefung::htmlAttribute($felder, 'passwort_neu') . '>
+                    </div>
+                    <div class="mb-0">
+                        <label class="form-label" for="regPasswortNeuWdh">' . $h($felder['passwort_neu_wdh']['bezeichnung']) . '</label>
+                        <input type="password" class="form-control" id="regPasswortNeuWdh" name="passwort_neu_wdh"
+                               autocomplete="new-password"' . Pruefung::htmlAttribute($felder, 'passwort_neu_wdh') . '>
+                    </div>
+                    <div class="form-text">
+                        Leer lassen, um das bisherige Passwort zu behalten. Der Benutzer meldet sich danach
+                        mit dem neuen Passwort an.
+                    </div>
+                </div>
+            </div>
+        </div>',
     'fuss'        => '
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Abbrechen</button>
         <button type="submit" class="btn fw-semibold btn-app-primary"><i class="bi bi-check-lg me-1"></i>Speichern</button>',
@@ -243,6 +290,16 @@ document.querySelectorAll('#regBearbeiten, #regLoeschen').forEach(function (moda
             rollenAuswahl.setzeWerte(rollen);
         }
 
+        // Passwortbereich bei jedem Oeffnen leer und zugeklappt
+        var pwBereich = modal.querySelector('#regPasswortBereich');
+        if (pwBereich) {
+            pwBereich.querySelectorAll('input').forEach(function (el) {
+                el.value = '';
+                el.setCustomValidity('');
+            });
+            bootstrap.Collapse.getOrCreateInstance(pwBereich, { toggle: false }).hide();
+        }
+
         // Ein deaktiviertes fieldset wird nicht mitgesendet -- beim eigenen
         // Zugang die unveraenderten Werte als versteckte Felder nachreichen.
         modal.querySelectorAll('.eigen-kopie').forEach(function (el) { el.remove(); });
@@ -262,4 +319,26 @@ document.querySelectorAll('#regBearbeiten, #regLoeschen').forEach(function (moda
         }
     });
 });
+
+// Passwort-Wiederholung schon im Browser abgleichen (verbindlich prueft der
+// Controller). Ein ungueltiges Feld im zugeklappten Bereich koennte der
+// Browser nicht anzeigen -- deshalb klappt "invalid" den Bereich auf.
+(function () {
+    var bereich = document.getElementById('regPasswortBereich');
+    var pw      = document.getElementById('regPasswortNeu');
+    var wdh     = document.getElementById('regPasswortNeuWdh');
+    if (!bereich) {
+        return;
+    }
+    function abgleichen() {
+        wdh.setCustomValidity(pw.value !== wdh.value ? 'Die Passwörter stimmen nicht überein.' : '');
+    }
+    pw.addEventListener('input', abgleichen);
+    wdh.addEventListener('input', abgleichen);
+    [pw, wdh].forEach(function (el) {
+        el.addEventListener('invalid', function () {
+            bootstrap.Collapse.getOrCreateInstance(bereich, { toggle: false }).show();
+        });
+    });
+})();
 </script>

@@ -16,6 +16,8 @@
 //   $muster       string  JS-RegExp-Quelltext fuer freie Eingaben (optional)
 //   $platzhalter  string  Platzhalter im Eingabefeld (optional)
 //   $hinweis      string  Hilfetext unter dem Feld, Klartext (optional)
+//   $fehlertext   string  Meldung bei ungueltiger Eingabe, Klartext (optional,
+//                         Default passt zum Rollenmuster mit optionalem @)
 //
 // Werte von aussen setzen (z.B. beim Oeffnen eines Dialogs):
 //   document.getElementById(id).setzeWerte(['wert1', 'wert2']);
@@ -42,7 +44,7 @@ $listeId   = $id . 'Liste';
         <ul class="dropdown-menu w-100 shadow-sm" id="<?= $h($listeId) ?>" role="listbox"
             style="top:100%;left:0;max-height:260px;overflow-y:auto;" data-teil="liste"></ul>
     </div>
-    <div class="invalid-feedback" data-teil="fehler">Ungültiger Wert &ndash; erlaubt sind Buchstaben, Ziffern und _ . / * -, optional mit @ am Anfang.</div>
+    <div class="invalid-feedback" data-teil="fehler"><?= $h($fehlertext ?? 'Ungültiger Wert – erlaubt sind Buchstaben, Ziffern und _ . / * -, optional mit @ am Anfang.') ?></div>
     <?php if (!empty($hinweis)): ?>
     <div class="form-text"><?= $h($hinweis) ?></div>
     <?php endif; ?>
