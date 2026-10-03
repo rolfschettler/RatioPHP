@@ -61,26 +61,14 @@ class Router
      * Dispatcht den Request zum entsprechenden Controller.
      *
      * Workflow:
-     * 1. URI aus REQUEST_URI extrahieren und normalisieren
-     * 2. APP_BASE bereinigen (Unterverzeichnis)
-     * 3. Route nachschlagen
-     * 4. Portalgrenze pruefen (Praefix der Route gegen typ aus dem Token)
-     * 5. Controller instanziieren und Action aufrufen
+     * 1. Routenpfad des Requests ermitteln (Core\Anfrage::pfad)
+     * 2. Route nachschlagen
+     * 3. Portalgrenze pruefen (Praefix der Route gegen typ aus dem Token)
+     * 4. Controller instanziieren und Action aufrufen
      */
     public function dispatch(): void
     {
-        // URI extrahieren
-        $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
-
-        // APP_BASE (Unterverzeichnis wie '/app', '/myapp') bereinigen
-        $base = rtrim(dirname($_SERVER['SCRIPT_NAME']), '/');
-        if ($base !== '' && str_starts_with($uri, $base)) {
-            $uri = substr($uri, strlen($base));
-        }
-
-        // Normalisieren: fuehrender Slash, Trailing Slash entfernen
-        $uri = '/' . ltrim($uri, '/');
-        $uri = ($uri !== '/' ? rtrim($uri, '/') : '/');
+        $uri = Anfrage::pfad();
 
         // Route nachschlagen
         if (isset($this->routes[$uri])) {
@@ -119,9 +107,8 @@ class Router
 
         if ($tokenPortal === null) {
             if ($route['auth']) {
-                // Login des Zielportals anbieten; ?login=1 oeffnet das Modal
-                $ziel = Portal::start($routePortal === self::ALLE ? Portal::DEFAULT : $routePortal);
-                $this->weiter($ziel . (str_contains($ziel, '?') ? '&' : '?') . 'login=1');
+                // Login des Zielportals anbieten
+                Anfrage::umleiten(Portal::login($routePortal === self::ALLE ? Portal::DEFAULT : $routePortal));
             }
 
             // Oeffentliche Route ohne Token -- normal rendern
@@ -142,17 +129,8 @@ class Router
             // Systemfehler, kein Benutzerfehler: der Benutzer hat nichts falsch
             // eingegeben. Erscheint auf der Zielseite im reservierten Bereich.
             Fehler::system('Diese Seite gehört nicht zu Ihrem Portal.', 'Route ' . $uri . ', Portal ' . $tokenPortal);
-            $this->weiter(Portal::start($tokenPortal));
+            Anfrage::umleiten(Portal::start($tokenPortal));
         }
-    }
-
-    /**
-     * Leitet innerhalb der App um (APP_BASE davor) und beendet den Request.
-     */
-    private function weiter(string $pfad): void
-    {
-        header('Location: ' . APP_BASE . $pfad);
-        exit;
     }
 
     /**

@@ -86,6 +86,16 @@ class Portal
     }
 
     /**
+     * Startseite mit geoeffnetem Login-Modal, z.B. '/mitarbeiter?login=1'.
+     * Ziel fuer "bitte anmelden" -- Router-Auth-Redirect und fehlgeschlagener
+     * Login. Der Parameter wird nirgends sonst zusammengesetzt.
+     */
+    public static function login(string $portal): string
+    {
+        return self::start($portal) . '?login=1';
+    }
+
+    /**
      * Routen-Praefix des Portals, z.B. '/mitarbeiter'.
      * Basis fuer jede Modul-URL in Views und Controllern:
      *   Portal::praefix('mitarbeiter') . '/einsatz'
@@ -126,10 +136,7 @@ class Portal
      */
     public static function ausPfad(string $pfad): ?string
     {
-        $pfad = '/' . ltrim($pfad, '/');
-        if ($pfad !== '/') {
-            $pfad = rtrim($pfad, '/');
-        }
+        $pfad = Anfrage::normalisiere($pfad);
 
         foreach (self::PORTALE as $portalName => $konfig) {
             if ($pfad === $konfig['start']) {

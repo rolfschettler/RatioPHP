@@ -135,10 +135,10 @@ use Core\BaseController;
 use Core\Codec;
 use Core\Fehler;
 use Core\Portal;
+use Core\Pruefung;
 
 class RegistrierungController extends BaseController
 {
-    private const MIN_PASSWORT_LAENGE      = 6;
     private const RATE_LIMIT_MAX           = 3;
     private const RATE_LIMIT_CHECK_MAX     = 30;
     private const RATE_LIMIT_MITARB_IP     = 10;
@@ -146,25 +146,63 @@ class RegistrierungController extends BaseController
     private const RATE_LIMIT_FENSTER       = 3600;   // 1 Stunde in Sekunden
     private const RATE_LIMIT_DATEI         = 'ratiophp_registrierung_ratelimit.json';
 
-    /** Maximale Laenge von USERS.loginname (ftstring 20). */
-    private const MAX_LOGINNAME = 20;
+    /** Zulaessige Anreden -- entsprechen den Werten im Adressbestand. */
+    private const ANREDEN = ['Frau', 'Herr', 'Firma', 'Familie'];
 
     /**
-     * Maximale Laenge von USERS.passwort (ftstring 20). Ein laengeres Passwort
-     * kann in USERS gar nicht stehen -- die Pruefung wuerde ohnehin scheitern.
+     * Die Formularfelder -- EINZIGE Quelle fuer Beschriftung, Feldlaenge und
+     * Pruefregeln (Schluessel siehe core/Pruefung.php). Daraus entstehen die
+     * Labels und maxlength/required im View UND die serverseitige Pruefung
+     * samt Fehlertexten. Abweichungen einer Portalvariante stehen in
+     * PORTALE[..]['felder'].
+     *
+     * Grenzen aus den Zielspalten (CLAUDE.md, Abschnitt Feldlaengen):
+     *   loginname, login_password  USERS (ftstring 20) -- laenger kann ein
+     *                              hinterlegter Wert gar nicht sein
+     *   kennziffer                 ADRESSEN.kennziffer (ftinteger)
+     *   name1, name2, strasse, ort ADRESSEN bzw. PERSONALSTAMM, je 30
+     *   plz 15, telefon1 25        ADRESSEN
+     *   username 60                ADRESSEN.email -- REGISTRIERUNG.username
+     *                              hat 120, die E-Mail landet in beiden, die
+     *                              kleinere Grenze bindet
+     *   password 72 BYTES          Bcrypt verarbeitet nur die ersten 72 Bytes
+     *                              und ignoriert den Rest stillschweigend --
+     *                              lieber ablehnen als still abschneiden. Die
+     *                              Zielspalte pwd2 (255) nimmt nur den Hash auf.
      */
-    private const MAX_USERS_PASSWORT = 20;
+    private const FELDER = [
+        'loginname'      => ['bezeichnung' => 'Loginname', 'pflicht' => true, 'max_zeichen' => 20],
+        'login_password' => ['bezeichnung' => 'Passwort', 'pflicht' => true, 'max_zeichen' => 20, 'geheim' => true],
+        'kennziffer'     => ['bezeichnung' => 'Kundennummer', 'ganzzahl' => [1, 2147483647], 'max_zeichen' => 10],
+        'anrede'         => ['bezeichnung' => 'Anrede', 'pflicht' => true, 'auswahl' => self::ANREDEN],
+        'name1'          => ['bezeichnung' => 'Vorname', 'pflicht' => true, 'max_zeichen' => 30],
+        'name2'          => ['bezeichnung' => 'Nachname / Firma', 'pflicht' => true, 'max_zeichen' => 30],
+        'strasse'        => ['bezeichnung' => 'Straße und Hausnummer', 'max_zeichen' => 30],
+        'plz'            => ['bezeichnung' => 'PLZ', 'max_zeichen' => 15],
+        'ort'            => ['bezeichnung' => 'Ort', 'max_zeichen' => 30],
+        'telefon1'       => ['bezeichnung' => 'Telefon', 'max_zeichen' => 25],
+        'username'       => ['bezeichnung' => 'E-Mail-Adresse', 'pflicht' => true, 'email' => true, 'max_zeichen' => 60],
+        'password'       => ['bezeichnung' => 'Passwort', 'pflicht' => true, 'min_bytes' => 6, 'max_bytes' => 72, 'geheim' => true],
+        'password_wdh'   => ['bezeichnung' => 'Passwort wiederholen', 'pflicht' => true, 'gleich' => 'password', 'geheim' => true],
+    ];
 
     /**
-     * Obergrenze fuer das selbst gewaehlte Portalpasswort -- in BYTES.
-     * Bcrypt (PASSWORD_DEFAULT) verarbeitet nur die ersten 72 Bytes und
-     * ignoriert alles danach stillschweigend. Ohne Grenze koennte sich jemand
-     * mit einem 200 Zeichen langen Passwort registrieren und sich danach mit
-     * den ersten 72 Zeichen anmelden. Lieber ablehnen als still abschneiden.
-     * Die Zielspalte REGISTRIERUNG.pwd2 (255) ist dabei unkritisch -- dort
-     * landet nur der 60 Zeichen lange Hash.
+     * Welche Felder ein Schalter in PORTALE einschaltet. username kommt dazu,
+     * wenn username_aus nicht 'loginname' ist.
      */
-    private const MAX_PASSWORT_BYTES = 72;
+    private const FELDGRUPPEN = [
+        'userspruefung'    => ['loginname', 'login_password'],
+        'adressdaten'      => ['kennziffer', 'anrede', 'strasse', 'plz', 'ort', 'telefon1'],
+        'namensfelder'     => ['name1', 'name2'],
+        'eigenes_passwort' => ['password', 'password_wdh'],
+    ];
+
+    /**
+     * Felder, die NICHT Core\Pruefung prueft, sondern pruefeMitarbeiter() --
+     * mit einheitlicher Meldung, damit das Formular nicht verraet, welche
+     * Loginnamen existieren.
+     */
+    private const FELDER_MITARBEITERNACHWEIS = ['loginname', 'login_password'];
 
     /**
      * Die Portalvarianten. Alles was sich zwischen den Registrierungen
@@ -191,6 +229,11 @@ class RegistrierungController extends BaseController
      *                    'loginname' -- USERS-Loginname (Mitarbeiter)
      *                    'zeichen'   -- Personalstamm-Kuerzel (Fahrer),
      *                                   wird grossgeschrieben gespeichert
+     *   felder           Abweichungen von FELDER fuer diese Variante
+     *
+     * Welche Felder abgefragt und geprueft werden, folgt aus den Schaltern
+     * (FELDGRUPPEN) -- ein Feld, das der Endpunkt bei diesem typ verwirft,
+     * wird weder abgefragt noch geprueft.
      *
      * Startseite, Portal-Label und der Pfad des Formulars kommen aus
      * core/Portal.php -- sie stehen bewusst nicht noch einmal hier.
@@ -245,47 +288,14 @@ class RegistrierungController extends BaseController
             'live_pruefung'    => false,
             'username_aus'     => 'zeichen',
             'dublette'         => 'Für dieses Fahrerkürzel ist bereits ein Portalzugang angelegt.',
+            // Kuerzel aus PERSONALSTAMM.zeichen (ftstring 15), immer gross --
+            // der Endpunkt normalisiert ebenso, der Anmeldevergleich laeuft
+            // per UPPER(). name2 ist hier kein Firmenname.
+            'felder'           => [
+                'username' => ['bezeichnung' => 'Fahrerkürzel', 'email' => false, 'max_zeichen' => 15, 'gross' => true],
+                'name2'    => ['bezeichnung' => 'Nachname'],
+            ],
         ],
-    ];
-
-    /** Zulaessige Anreden -- entsprechen den Werten im Adressbestand. */
-    private const ANREDEN = ['Frau', 'Herr', 'Firma', 'Familie'];
-
-    /**
-     * Maximale Feldlaengen laut RATIOserver-Header von ADRESSEN.
-     * username ist in REGISTRIERUNG 120 Zeichen lang, wird aber zusaetzlich
-     * als ADRESSEN.email gespeichert -- daher gilt die kleinere Grenze 60.
-     */
-    private const MAX_LAENGE = [
-        'name1'    => 30,
-        'name2'    => 30,
-        'strasse'  => 30,
-        'plz'      => 15,
-        'ort'      => 30,
-        'telefon1' => 25,
-        'username' => 60,
-    ];
-
-    /**
-     * Maximale Laenge von PERSONALSTAMM.zeichen (ftstring 15) -- der
-     * Benutzername im Fahrerportal. Laut Header von /dispo/getpersonalstamm;
-     * name1 und name2 sind dort ebenfalls 30 Zeichen, decken sich also mit
-     * MAX_LAENGE.
-     */
-    private const MAX_ZEICHEN = 15;
-
-    /** Groesstmoeglicher Wert fuer ADRESSEN.kennziffer (ftinteger). */
-    private const MAX_KENNZIFFER = 2147483647;
-
-    /** Beschriftungen fuer Fehlermeldungen zu Ueberlaengen. */
-    private const BEZEICHNUNG = [
-        'name1'    => 'Vorname',
-        'name2'    => 'Nachname bzw. Firma',
-        'strasse'  => 'Straße',
-        'plz'      => 'PLZ',
-        'ort'      => 'Ort',
-        'telefon1' => 'Telefon',
-        'username' => 'E-Mail-Adresse',
     ];
 
     /**
@@ -341,11 +351,12 @@ class RegistrierungController extends BaseController
     // ------------------------------------------------------------------
 
     /**
-     * Rendert das leere Formular der angegebenen Portalvariante.
+     * Rendert das Formular der angegebenen Portalvariante -- leer oder mit
+     * den bisherigen Eingaben (ohne Passwoerter).
      */
-    private function zeigeFormular(string $variante): void
+    private function zeigeFormular(string $variante, array $eingaben = []): void
     {
-        $this->render('registrierung/index', $this->viewDaten($variante));
+        $this->render('registrierung/index', $this->viewDaten($variante, $eingaben));
     }
 
     /**
@@ -370,24 +381,12 @@ class RegistrierungController extends BaseController
             return;
         }
 
-        // Eingaben einsammeln -- alle Werte fliessen bei einem Fehler zurueck
-        // in das Formular, ausser den Passwoertern.
-        $eingaben = [
-            'anrede'     => trim((string)($_POST['anrede']     ?? '')),
-            'name1'      => trim((string)($_POST['name1']      ?? '')),
-            'name2'      => trim((string)($_POST['name2']      ?? '')),
-            'strasse'    => trim((string)($_POST['strasse']    ?? '')),
-            'plz'        => trim((string)($_POST['plz']        ?? '')),
-            'ort'        => trim((string)($_POST['ort']        ?? '')),
-            'telefon1'   => trim((string)($_POST['telefon1']   ?? '')),
-            'username'   => trim((string)($_POST['username']   ?? '')),
-            'kennziffer' => trim((string)($_POST['kennziffer'] ?? '')),
-            'loginname'  => trim((string)($_POST['loginname']  ?? '')),
-        ];
-
-        $passwort           = (string)($_POST['password']       ?? '');
-        $passwortWiederholt = (string)($_POST['password_wdh']   ?? '');
-        $usersPasswort      = (string)($_POST['login_password'] ?? '');
+        // Eingaben einsammeln -- nur die Felder dieser Variante (FELDGRUPPEN).
+        // Bei einem Fehler fliessen alle Werte ausser den Passwoertern
+        // ('geheim') zurueck in das Formular.
+        $felder   = $this->felder($variante);
+        $werte    = Pruefung::werteAusPost($felder);
+        $eingaben = Pruefung::ohneGeheime($felder, $werte);
 
         $ip = (string)($_SERVER['REMOTE_ADDR'] ?? '');
         if ($ip !== '' && $this->rateLimitUeberschritten($ip, 'registrierung', self::RATE_LIMIT_MAX)) {
@@ -404,152 +403,33 @@ class RegistrierungController extends BaseController
         // nicht erfahren, ob die restlichen Eingaben in Ordnung waeren.
 
         if ($konfig['userspruefung']) {
-            $fehler = $this->pruefeMitarbeiter($eingaben['loginname'], $usersPasswort, $ip);
+            $fehler = $this->pruefeMitarbeiter($werte['loginname'], $werte['login_password'], $ip);
             if ($fehler !== null) {
                 $this->zeigeMitFehler($fehler, $eingaben, $variante);
                 return;
             }
         }
 
-        // --- Benutzername der Registrierung ---------------------------------
-        // Kundenportal: die eingegebene E-Mail-Adresse.
-        // Mitarbeiterportal: der USERS-Loginname -- er ist oben schon geprueft
-        // (vorhanden, maximal MAX_LOGINNAME Zeichen, Passwort passt).
-        // Fahrerportal: das Personalstamm-Kuerzel (PERSONALSTAMM.zeichen).
+        // --- Feldpruefung ---------------------------------------------------
+        // Alle Fehler auf einmal -- Texte, Pflichtfelder und Grenzen kommen aus
+        // FELDER. Die Felder des Mitarbeiternachweises sind oben bereits
+        // geprueft (mit einheitlicher Meldung).
 
-        if ($konfig['username_aus'] === 'loginname') {
-            $benutzername = $eingaben['loginname'];
-        } elseif ($konfig['username_aus'] === 'zeichen') {
-            // Grossschreibung wie im PERSONALSTAMM -- der Endpunkt normalisiert
-            // ebenso und speichert den Login gross. Der spaetere Anmeldevergleich
-            // laeuft ohnehin per UPPER() auf beiden Seiten.
-            $benutzername = mb_strtoupper($eingaben['username']);
-
-            if ($benutzername === '') {
-                $this->zeigeMitFehler('Bitte Ihr Fahrerkürzel angeben.', $eingaben, $variante);
-                return;
-            }
-            if (mb_strlen($benutzername) > self::MAX_ZEICHEN) {
-                $this->zeigeMitFehler(
-                    'Fahrerkürzel: maximal ' . self::MAX_ZEICHEN . ' Zeichen.',
-                    $eingaben,
-                    $variante
-                );
-                return;
-            }
-        } else {
-            $benutzername = $eingaben['username'];
-
-            if ($benutzername === '' || !filter_var($benutzername, FILTER_VALIDATE_EMAIL)) {
-                $this->zeigeMitFehler('Bitte eine gültige E-Mail-Adresse angeben.', $eingaben, $variante);
-                return;
-            }
-            if (mb_strlen($benutzername) > self::MAX_LAENGE['username']) {
-                $this->zeigeMitFehler(
-                    self::BEZEICHNUNG['username'] . ': maximal ' . self::MAX_LAENGE['username'] . ' Zeichen.',
-                    $eingaben,
-                    $variante
-                );
-                return;
-            }
+        $pruefung = Pruefung::formular(
+            array_diff_key($felder, array_flip(self::FELDER_MITARBEITERNACHWEIS)),
+            $werte
+        );
+        if (!$pruefung->melde()) {
+            $this->zeigeFormular($variante, $eingaben);
+            return;
         }
 
-        // --- Vor- und Nachname ----------------------------------------------
-        // Kundenportal: Pflichtfelder der Adresse (typ=kunde).
-        // Fahrerportal: Pflichtfelder des PERSONALSTAMM-Abgleichs (typ=fahrer)
-        //   -- der Endpunkt lehnt leere Werte in beiden Faellen ab.
-        // Mitarbeiterportal: wird gar nicht erst abgefragt.
-
-        if ($konfig['namensfelder']) {
-            if ($eingaben['name1'] === '') {
-                $this->zeigeMitFehler('Bitte einen Vornamen angeben.', $eingaben, $variante);
-                return;
-            }
-            if ($eingaben['name2'] === '') {
-                $this->zeigeMitFehler(
-                    $konfig['adressdaten']
-                        ? 'Bitte einen Nachnamen bzw. Firmennamen angeben.'
-                        : 'Bitte einen Nachnamen angeben.',
-                    $eingaben,
-                    $variante
-                );
-                return;
-            }
-
-            foreach (['name1', 'name2'] as $feld) {
-                if (mb_strlen($eingaben[$feld]) > self::MAX_LAENGE[$feld]) {
-                    $this->zeigeMitFehler(
-                        self::BEZEICHNUNG[$feld] . ': maximal ' . self::MAX_LAENGE[$feld] . ' Zeichen.',
-                        $eingaben,
-                        $variante
-                    );
-                    return;
-                }
-            }
-        }
-
-        // --- Eigenes Portalpasswort -----------------------------------------
-        // Ueberall dort, wo der Nutzer sein Passwort selbst waehlt. Im
-        // Mitarbeiterportal nicht: dort ist das oben gegen USERS gepruefte
-        // Passwort gleichzeitig das Portalpasswort.
-
-        if ($konfig['eigenes_passwort']) {
-            if (strlen($passwort) < self::MIN_PASSWORT_LAENGE) {
-                $this->zeigeMitFehler(
-                    'Das Passwort muss mindestens ' . self::MIN_PASSWORT_LAENGE . ' Zeichen lang sein.',
-                    $eingaben,
-                    $variante
-                );
-                return;
-            }
-            // Bcrypt-Grenze -- siehe MAX_PASSWORT_BYTES. strlen() zaehlt Bytes,
-            // genau wie bcrypt: ein Umlaut belegt zwei davon.
-            if (strlen($passwort) > self::MAX_PASSWORT_BYTES) {
-                $this->zeigeMitFehler(
-                    'Das Passwort darf höchstens ' . self::MAX_PASSWORT_BYTES
-                    . ' Zeichen lang sein (Umlaute zählen doppelt).',
-                    $eingaben,
-                    $variante
-                );
-                return;
-            }
-            if ($passwort !== $passwortWiederholt) {
-                $this->zeigeMitFehler('Die Passwörter stimmen nicht überein.', $eingaben, $variante);
-                return;
-            }
-        }
-
-        // --- Adressfelder -- nur wo eine Adresse entsteht -------------------
-        // Bei typ != 'kunde' legt der Endpunkt keine Adresse an und ignoriert
-        // anrede/strasse/plz/ort/telefon1/kennziffer. Diese Felder werden dann
-        // gar nicht erst abgefragt, also auch nicht geprueft.
-
-        if ($konfig['adressdaten']) {
-            if (!in_array($eingaben['anrede'], self::ANREDEN, true)) {
-                $this->zeigeMitFehler('Bitte eine Anrede auswählen.', $eingaben, $variante);
-                return;
-            }
-
-            // Kundennummer ist optional -- wenn angegeben, muss sie eine Zahl sein.
-            if ($eingaben['kennziffer'] !== ''
-                && (!ctype_digit($eingaben['kennziffer'])
-                    || (int)$eingaben['kennziffer'] < 1
-                    || (float)$eingaben['kennziffer'] > self::MAX_KENNZIFFER)) {
-                $this->zeigeMitFehler('Bitte eine gültige Kundennummer angeben (nur Ziffern).', $eingaben, $variante);
-                return;
-            }
-
-            foreach (self::MAX_LAENGE as $feld => $max) {
-                if (mb_strlen($eingaben[$feld]) > $max) {
-                    $this->zeigeMitFehler(
-                        self::BEZEICHNUNG[$feld] . ': maximal ' . $max . ' Zeichen.',
-                        $eingaben,
-                        $variante
-                    );
-                    return;
-                }
-            }
-        }
+        // Benutzername der Registrierung:
+        //   Kundenportal      -- die E-Mail-Adresse
+        //   Mitarbeiterportal -- der oben gepruefte USERS-Loginname
+        //   Fahrerportal      -- das Personalstamm-Kuerzel, durch 'gross'
+        //                        bereits grossgeschrieben
+        $benutzername = $werte[$konfig['username_aus'] === 'loginname' ? 'loginname' : 'username'];
 
         // --- Benutzername bereits vergeben? ---------------------------------
         // Vorabpruefung fuer eine verstaendliche Meldung. Der Insert prueft
@@ -570,7 +450,7 @@ class RegistrierungController extends BaseController
         // Mitarbeiterpasswort aus USERS -- es wurde oben gegen USERS geprueft
         // und wird hier gehasht abgelegt. Ein eigenes Portalpasswort gibt es
         // dort nicht.
-        $klartextPasswort = $konfig['eigenes_passwort'] ? $passwort : $usersPasswort;
+        $klartextPasswort = $konfig['eigenes_passwort'] ? $werte['password'] : $werte['login_password'];
 
         $daten = [
             'username' => $benutzername,
@@ -584,8 +464,8 @@ class RegistrierungController extends BaseController
         // Endpunkt beide Varianten ab.
         if ($konfig['namensfelder']) {
             $daten += [
-                'name1' => $eingaben['name1'],
-                'name2' => $eingaben['name2'],
+                'name1' => $werte['name1'],
+                'name2' => $werte['name2'],
             ];
         }
 
@@ -595,35 +475,29 @@ class RegistrierungController extends BaseController
         // die E-Mail-Adresse, ein zweites Feld dafuer waere redundant.
         if ($konfig['adressdaten']) {
             $daten += [
-                'anrede'   => $eingaben['anrede'],
-                'strasse'  => $eingaben['strasse'],
-                'plz'      => $eingaben['plz'],
-                'ort'      => $eingaben['ort'],
-                'telefon1' => $eingaben['telefon1'],
+                'anrede'   => $werte['anrede'],
+                'strasse'  => $werte['strasse'],
+                'plz'      => $werte['plz'],
+                'ort'      => $werte['ort'],
+                'telefon1' => $werte['telefon1'],
                 'email'    => $benutzername,
             ];
 
             // Kundennummer nur mitsenden wenn angegeben -- 0 oder Leerstring
             // wuerde der Endpunkt ohnehin verwerfen.
-            if ($eingaben['kennziffer'] !== '') {
-                $daten['kennziffer'] = (int)$eingaben['kennziffer'];
+            if ($werte['kennziffer'] !== '') {
+                $daten['kennziffer'] = (int)$werte['kennziffer'];
             }
         }
 
         $insertResponse = \api_post('/registrierung/insertregistrierunglocal', $daten);
 
-        if (($insertResponse['status'] ?? '') !== 'OK') {
-            // Systemfehler stehen bereits im reservierten Bereich -- Formular
-            // nur erneut zeigen, damit die Eingaben erhalten bleiben
-            if (Fehler::istSystem($insertResponse)) {
-                $this->render('registrierung/index', $this->viewDaten($variante, $eingaben));
-                return;
-            }
-            $this->zeigeMitFehler(
-                $insertResponse['message'] ?? 'Registrierung fehlgeschlagen -- bitte später erneut versuchen.',
-                $eingaben,
-                $variante
-            );
+        if (!Fehler::ok($insertResponse)) {
+            // Fachliche Ablehnung (z.B. nicht im Personalstamm) als Dialog;
+            // ein Systemfehler steht bereits im reservierten Bereich. In beiden
+            // Faellen bleibt das Formular mit den Eingaben stehen.
+            $this->apiFehler($insertResponse, 'Registrierung fehlgeschlagen -- bitte später erneut versuchen.');
+            $this->zeigeFormular($variante, $eingaben);
             return;
         }
 
@@ -666,7 +540,7 @@ class RegistrierungController extends BaseController
      */
     private function pruefeMitarbeiter(string $loginname, string $passwort, string $ip): ?string
     {
-        if ($loginname === '' || mb_strlen($loginname) > self::MAX_LOGINNAME) {
+        if ($loginname === '' || mb_strlen($loginname) > self::FELDER['loginname']['max_zeichen']) {
             return self::FEHLER_MITARBEITER;
         }
 
@@ -693,7 +567,7 @@ class RegistrierungController extends BaseController
         // Passwort sein -- der Vergleich weiter unten koennte nie passen.
         // Bewusst dieselbe neutrale Meldung wie jeder andere Fehlschlag und
         // bewusst NACH den Zaehlern: das ist ein Fehlversuch wie jeder andere.
-        if (mb_strlen($passwort) > self::MAX_USERS_PASSWORT) {
+        if (mb_strlen($passwort) > self::FELDER['login_password']['max_zeichen']) {
             return self::FEHLER_MITARBEITER;
         }
 
@@ -744,7 +618,7 @@ class RegistrierungController extends BaseController
     /**
      * POST /kunde/registrieren/username-pruefen -- Verfuegbarkeitspruefung fuer
      * Formular, wird per fetch() aufgerufen sobald die E-Mail-Adresse
-     * eingegeben ist. Dient beiden Portalen.
+     * eingegeben ist. Nur das Kundenportal hat live_pruefung.
      *
      * Antwortet immer JSON: {"frei":true|false|null,"message":".."}
      * frei = null bedeutet "keine Aussage moeglich" -- das Formular macht
@@ -757,17 +631,13 @@ class RegistrierungController extends BaseController
             return;
         }
 
-        $username = trim((string)($_POST['username'] ?? ''));
+        // Dieselbe Feld-Definition und Pruefung wie beim Absenden
+        $feld     = array_intersect_key($this->felder('kunde'), ['username' => true]);
+        $username = Pruefung::werteAusPost($feld)['username'];
+        $pruefung = Pruefung::formular($feld, ['username' => $username]);
 
-        if ($username === '' || !filter_var($username, FILTER_VALIDATE_EMAIL)) {
-            $this->json(['frei' => null, 'message' => '']);
-            return;
-        }
-        if (mb_strlen($username) > self::MAX_LAENGE['username']) {
-            $this->json([
-                'frei'    => null,
-                'message' => 'E-Mail-Adresse: maximal ' . self::MAX_LAENGE['username'] . ' Zeichen.',
-            ]);
+        if (!$pruefung->ok()) {
+            $this->json(['frei' => null, 'message' => $pruefung->alle()[0]]);
             return;
         }
 
@@ -787,7 +657,7 @@ class RegistrierungController extends BaseController
             return;
         }
         if ($frei === false) {
-            $this->json(['frei' => false, 'message' => 'Diese E-Mail-Adresse ist bereits registriert.']);
+            $this->json(['frei' => false, 'message' => self::PORTALE['kunde']['dublette']]);
             return;
         }
 
@@ -808,18 +678,40 @@ class RegistrierungController extends BaseController
     }
 
     /**
-     * Zeigt das Formular erneut mit Fehlermeldung und den bisherigen Eingaben
-     * (ausser Passwoertern -- die werden nie zurueckgegeben).
+     * Zeigt das Formular erneut mit einem Benutzerfehler (Dialog) und den
+     * bisherigen Eingaben (ohne Passwoerter).
      */
     private function zeigeMitFehler(string $fehler, array $eingaben, string $variante): void
     {
         $this->flashError($fehler);
-        $this->render('registrierung/index', $this->viewDaten($variante, $eingaben));
+        $this->zeigeFormular($variante, $eingaben);
     }
 
     /**
-     * Baut die View-Variablen einer Portalvariante zusammen.
+     * Feld-Definitionen der Variante: nur die Felder, die ihre Schalter
+     * einschalten (FELDGRUPPEN), in der Reihenfolge von FELDER und mit den
+     * Abweichungen aus PORTALE[..]['felder'].
      */
+    private function felder(string $variante): array
+    {
+        $konfig = self::PORTALE[$variante];
+
+        $aktiv = $konfig['username_aus'] === 'loginname' ? [] : ['username'];
+        foreach (self::FELDGRUPPEN as $schalter => $gruppe) {
+            if ($konfig[$schalter]) {
+                $aktiv = array_merge($aktiv, $gruppe);
+            }
+        }
+
+        $felder = array_intersect_key(self::FELDER, array_flip($aktiv));
+        foreach ($konfig['felder'] ?? [] as $feld => $abweichung) {
+            if (isset($felder[$feld])) {
+                $felder[$feld] = array_replace($felder[$feld], $abweichung);
+            }
+        }
+        return $felder;
+    }
+
     /**
      * Ziel des Formular-Submits: Registrierungspfad des Portals + /absenden.
      * Ergibt /registrieren/absenden, /mitarbeiter/registrieren/absenden und
@@ -830,6 +722,9 @@ class RegistrierungController extends BaseController
         return Portal::registrierung($portal) . '/absenden';
     }
 
+    /**
+     * Baut die View-Variablen einer Portalvariante zusammen.
+     */
     private function viewDaten(string $variante, array $eingaben = []): array
     {
         $konfig = self::PORTALE[$variante];
@@ -852,13 +747,9 @@ class RegistrierungController extends BaseController
             'eigenes_passwort'     => $konfig['eigenes_passwort'],
             'live_pruefung'        => $konfig['live_pruefung'],
             'username_aus'         => $konfig['username_aus'],
-            'anreden'              => self::ANREDEN,
-            'max_laenge'           => self::MAX_LAENGE,
-            'max_loginname'        => self::MAX_LOGINNAME,
-            'max_zeichen'          => self::MAX_ZEICHEN,
-            'max_users_passwort'   => self::MAX_USERS_PASSWORT,
-            'max_pwd'              => self::MAX_PASSWORT_BYTES,
-            'min_pwd'              => self::MIN_PASSWORT_LAENGE,
+            // Beschriftung, Grenzen und Pflichtfelder -- dieselben
+            // Definitionen, nach denen der Controller prueft
+            'felder'               => $this->felder($variante),
             'eingaben'             => $eingaben,
         ];
     }

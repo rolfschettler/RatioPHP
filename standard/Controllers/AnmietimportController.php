@@ -95,6 +95,7 @@
 namespace Standard\Controllers;
 
 use Core\BaseController;
+use Core\Fehler;
 use Core\Portal;
 
 class AnmietimportController extends BaseController
@@ -227,7 +228,7 @@ class AnmietimportController extends BaseController
             $felder['nr'] = $nr;
 
             $insertResponse = \api_post('/insert?table=ANMIET', $felder);
-            if (($insertResponse['status'] ?? '') !== 'OK') {
+            if (!Fehler::ok($insertResponse)) {
                 $ergebnisse[] = [
                     'bezeichnung' => $bezeichnung,
                     'status'      => 'fehler',
@@ -264,7 +265,7 @@ class AnmietimportController extends BaseController
                 $posFelder['positionsnr'] = $posNr;
 
                 $posResponse = \api_post('/insert?table=ANMIETPOS', $posFelder);
-                if (($posResponse['status'] ?? '') !== 'OK') {
+                if (!Fehler::ok($posResponse)) {
                     $posFehler++;
                 }
             }
@@ -393,7 +394,7 @@ class AnmietimportController extends BaseController
             'params' => ['nr' => $nr],
         ]);
 
-        return ($response['status'] ?? '') === 'OK';
+        return Fehler::ok($response);
     }
 
     /**

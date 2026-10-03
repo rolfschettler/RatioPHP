@@ -22,18 +22,19 @@
 //                         'zeichen'   -> Fahrerkuerzel (Fahrer)
 //   $live_pruefung        true -> Verfuegbarkeit waehrend der Eingabe pruefen.
 //
+//   $felder               Feld-Definitionen (RegistrierungController::FELDER)
+//                         -- Beschriftung, Pflicht und Grenzen JEDES Feldes.
+//                         Dieselben Definitionen prueft der Controller; hier
+//                         steht deshalb keine Grenze und kein Label im Klartext.
+//
 // name1 = Vorname, name2 = Nachname bzw. Firma. Bei typ=kunde Adressdaten,
 // bei typ=fahrer das Suchkriterium fuer den PERSONALSTAMM -- in beiden Faellen
 // Pflicht, der Endpunkt lehnt leere Werte ab.
 
+use Core\Pruefung;
+
 $eingaben        = $eingaben        ?? [];
-$anreden         = $anreden         ?? ['Frau', 'Herr', 'Firma', 'Familie'];
-$maxLaenge       = $max_laenge      ?? [];
-$maxLoginname    = $max_loginname   ?? 20;
-$maxZeichen      = $max_zeichen     ?? 15;
-$maxUsersPwd     = $max_users_passwort ?? 20;
-$maxPwd          = $max_pwd         ?? 72;
-$minPwd          = $min_pwd         ?? 6;
+$felder          = $felder          ?? [];
 $titelText       = $titel           ?? 'Registrieren';
 $untertitelText  = $untertitel      ?? 'Legen Sie ein neues Konto an.';
 $aktion          = $formular_action ?? '/kunde/registrieren/absenden';
@@ -57,10 +58,17 @@ $wert = static function (string $feld) use ($eingaben): string {
     return htmlspecialchars((string)($eingaben[$feld] ?? ''), ENT_QUOTES);
 };
 
-/** Gibt das maxlength-Attribut zurueck, falls eine Grenze bekannt ist. */
-$maxAttr = static function (string $feld) use ($maxLaenge): string {
-    return isset($maxLaenge[$feld]) ? ' maxlength="' . (int)$maxLaenge[$feld] . '"' : '';
+/** Label aus der Feld-Definition -- Pflichtfelder mit Stern. */
+$label = static function (string $feld, string $id) use ($felder): string {
+    $def = $felder[$feld] ?? [];
+    return '<label for="' . $id . '" class="form-label">'
+         . htmlspecialchars($def['bezeichnung'] ?? $feld)
+         . (!empty($def['pflicht']) ? ' <span class="text-danger">*</span>' : '')
+         . '</label>';
 };
+
+/** maxlength, minlength und required aus der Feld-Definition. */
+$attr = static fn(string $feld): string => Pruefung::htmlAttribute($felder, $feld);
 ?>
 <div class="px-3 py-5">
     <div class="container">
@@ -95,21 +103,15 @@ $maxAttr = static function (string $feld) use ($maxLaenge): string {
                     </h2>
                     <div class="row g-3">
                         <div class="col-12 col-sm-6">
-                            <label for="regLoginname" class="form-label">
-                                Loginname <span class="text-danger">*</span>
-                            </label>
+                            <?= $label('loginname', 'regLoginname') ?>
                             <input type="text" class="form-control" id="regLoginname" name="loginname"
-                                   value="<?= $wert('loginname') ?>" maxlength="<?= (int)$maxLoginname ?>"
-                                   autocomplete="off" required autofocus>
+                                   value="<?= $wert('loginname') ?>"<?= $attr('loginname') ?>
+                                   autocomplete="off" autofocus>
                         </div>
                         <div class="col-12 col-sm-6">
-                            <label for="regLoginPassword" class="form-label">
-                                Passwort <span class="text-danger">*</span>
-                            </label>
-                            <?php // maxlength = USERS.passwort (ftstring 20) -- laenger kann
-                                  // ein hinterlegtes Mitarbeiterpasswort nicht sein ?>
+                            <?= $label('login_password', 'regLoginPassword') ?>
                             <input type="password" class="form-control" id="regLoginPassword" name="login_password"
-                                   maxlength="<?= (int)$maxUsersPwd ?>" autocomplete="off">
+                                   <?= $attr('login_password') ?> autocomplete="off">
                         </div>
                         <div class="col-12">
                             <div class="form-text">
@@ -130,11 +132,11 @@ $maxAttr = static function (string $feld) use ($maxLaenge): string {
                     <!-- ---------------------------------------------------- -->
                     <div class="mb-4">
                         <label for="regKennziffer" class="form-label">
-                            Wenn Sie schon Kunde sind: Ihre Kundennummer
+                            Wenn Sie schon Kunde sind: Ihre <?= htmlspecialchars($felder['kennziffer']['bezeichnung']) ?>
                         </label>
                         <input type="text" class="form-control" id="regKennziffer" name="kennziffer"
                                value="<?= $wert('kennziffer') ?>" inputmode="numeric" pattern="[0-9]*"
-                               maxlength="10" placeholder="optional">
+                               <?= $attr('kennziffer') ?> placeholder="optional">
                         <div class="form-text">
                             Damit ordnen wir Ihre Anmeldung Ihren bestehenden Kundendaten zu.
                             Vor- und Nachname m&uuml;ssen dazu mit Ihren hinterlegten Daten
@@ -156,10 +158,10 @@ $maxAttr = static function (string $feld) use ($maxLaenge): string {
                     <div class="row g-3">
                         <?php if ($mitAdresse): ?>
                         <div class="col-12 col-sm-4">
-                            <label for="regAnrede" class="form-label">Anrede <span class="text-danger">*</span></label>
-                            <select class="form-select" id="regAnrede" name="anrede" required>
+                            <?= $label('anrede', 'regAnrede') ?>
+                            <select class="form-select" id="regAnrede" name="anrede"<?= $attr('anrede') ?>>
                                 <option value="">Bitte w&auml;hlen</option>
-                                <?php foreach ($anreden as $anrede): ?>
+                                <?php foreach ($felder['anrede']['auswahl'] as $anrede): ?>
                                 <option value="<?= htmlspecialchars($anrede, ENT_QUOTES) ?>"
                                     <?= ($eingaben['anrede'] ?? '') === $anrede ? 'selected' : '' ?>>
                                     <?= htmlspecialchars($anrede) ?>
@@ -171,17 +173,15 @@ $maxAttr = static function (string $feld) use ($maxLaenge): string {
 
                         <?php if ($mitNamen): ?>
                         <div class="col-12 <?= $mitAdresse ? 'col-sm-4' : 'col-sm-6' ?>">
-                            <label for="regName1" class="form-label">Vorname <span class="text-danger">*</span></label>
+                            <?= $label('name1', 'regName1') ?>
                             <input type="text" class="form-control" id="regName1" name="name1"
-                                   value="<?= $wert('name1') ?>"<?= $maxAttr('name1') ?> required
+                                   value="<?= $wert('name1') ?>"<?= $attr('name1') ?>
                                    <?= $userspruefung ? '' : 'autofocus' ?>>
                         </div>
                         <div class="col-12 <?= $mitAdresse ? 'col-sm-4' : 'col-sm-6' ?>">
-                            <label for="regName2" class="form-label">
-                                <?= $mitAdresse ? 'Nachname / Firma' : 'Nachname' ?> <span class="text-danger">*</span>
-                            </label>
+                            <?= $label('name2', 'regName2') ?>
                             <input type="text" class="form-control" id="regName2" name="name2"
-                                   value="<?= $wert('name2') ?>"<?= $maxAttr('name2') ?> required>
+                                   value="<?= $wert('name2') ?>"<?= $attr('name2') ?>>
                         </div>
                         <?php if ($mitZeichen): ?>
                         <div class="col-12">
@@ -195,24 +195,24 @@ $maxAttr = static function (string $feld) use ($maxLaenge): string {
 
                         <?php if ($mitAdresse): ?>
                         <div class="col-12">
-                            <label for="regStrasse" class="form-label">Stra&szlig;e und Hausnummer</label>
+                            <?= $label('strasse', 'regStrasse') ?>
                             <input type="text" class="form-control" id="regStrasse" name="strasse"
-                                   value="<?= $wert('strasse') ?>"<?= $maxAttr('strasse') ?>>
+                                   value="<?= $wert('strasse') ?>"<?= $attr('strasse') ?>>
                         </div>
                         <div class="col-12 col-sm-4">
-                            <label for="regPlz" class="form-label">PLZ</label>
+                            <?= $label('plz', 'regPlz') ?>
                             <input type="text" class="form-control" id="regPlz" name="plz"
-                                   value="<?= $wert('plz') ?>"<?= $maxAttr('plz') ?>>
+                                   value="<?= $wert('plz') ?>"<?= $attr('plz') ?>>
                         </div>
                         <div class="col-12 col-sm-8">
-                            <label for="regOrt" class="form-label">Ort</label>
+                            <?= $label('ort', 'regOrt') ?>
                             <input type="text" class="form-control" id="regOrt" name="ort"
-                                   value="<?= $wert('ort') ?>"<?= $maxAttr('ort') ?>>
+                                   value="<?= $wert('ort') ?>"<?= $attr('ort') ?>>
                         </div>
                         <div class="col-12 col-sm-6">
-                            <label for="regTelefon" class="form-label">Telefon</label>
+                            <?= $label('telefon1', 'regTelefon') ?>
                             <input type="tel" class="form-control" id="regTelefon" name="telefon1"
-                                   value="<?= $wert('telefon1') ?>"<?= $maxAttr('telefon1') ?>>
+                                   value="<?= $wert('telefon1') ?>"<?= $attr('telefon1') ?>>
                         </div>
                         <?php endif; ?>
                     </div>
@@ -233,12 +233,10 @@ $maxAttr = static function (string $feld) use ($maxLaenge): string {
                     <div class="row g-3">
                         <?php if ($mitEmail): ?>
                         <div class="col-12">
-                            <label for="regUsername" class="form-label">
-                                E-Mail-Adresse <span class="text-danger">*</span>
-                            </label>
+                            <?= $label('username', 'regUsername') ?>
                             <input type="email" class="form-control" id="regUsername" name="username"
-                                   value="<?= $wert('username') ?>"<?= $maxAttr('username') ?>
-                                   autocomplete="username" required>
+                                   value="<?= $wert('username') ?>"<?= $attr('username') ?>
+                                   autocomplete="username">
                             <div class="form-text">
                                 Ihre E-Mail-Adresse ist gleichzeitig Ihr Benutzername.
                             </div>
@@ -247,12 +245,10 @@ $maxAttr = static function (string $feld) use ($maxLaenge): string {
                         </div>
                         <?php elseif ($mitZeichen): ?>
                         <div class="col-12">
-                            <label for="regUsername" class="form-label">
-                                Fahrerk&uuml;rzel <span class="text-danger">*</span>
-                            </label>
+                            <?= $label('username', 'regUsername') ?>
                             <input type="text" class="form-control text-uppercase" id="regUsername" name="username"
-                                   value="<?= $wert('username') ?>" maxlength="<?= (int)$maxZeichen ?>"
-                                   autocomplete="username" autocapitalize="characters" spellcheck="false" required>
+                                   value="<?= $wert('username') ?>"<?= $attr('username') ?>
+                                   autocomplete="username" autocapitalize="characters" spellcheck="false">
                             <div class="form-text">
                                 Ihr K&uuml;rzel aus dem Personalstamm &ndash; damit melden Sie sich
                                 k&uuml;nftig am Portal an. Gro&szlig;- und Kleinschreibung spielt
@@ -262,23 +258,18 @@ $maxAttr = static function (string $feld) use ($maxLaenge): string {
                         <?php endif; ?>
                         <?php if ($mitPasswort): ?>
                         <div class="col-12 col-sm-6">
-                            <label for="regPassword" class="form-label">Passwort <span class="text-danger">*</span></label>
-                            <?php // maxlength = Bcrypt-Grenze (72 Bytes). Ohne sie wuerde alles
-                                  // darueber hinaus beim Hashen stillschweigend abgeschnitten. ?>
+                            <?= $label('password', 'regPassword') ?>
                             <input type="password" class="form-control" id="regPassword" name="password"
-                                   minlength="<?= (int)$minPwd ?>" maxlength="<?= (int)$maxPwd ?>"
-                                   autocomplete="new-password" required>
+                                   <?= $attr('password') ?> autocomplete="new-password">
                             <div class="form-text">
-                                Mindestens <?= (int)$minPwd ?>, h&ouml;chstens <?= (int)$maxPwd ?> Zeichen.
+                                Mindestens <?= (int)$felder['password']['min_bytes'] ?>,
+                                h&ouml;chstens <?= (int)$felder['password']['max_bytes'] ?> Zeichen.
                             </div>
                         </div>
                         <div class="col-12 col-sm-6">
-                            <label for="regPasswordWdh" class="form-label">
-                                Passwort wiederholen <span class="text-danger">*</span>
-                            </label>
+                            <?= $label('password_wdh', 'regPasswordWdh') ?>
                             <input type="password" class="form-control" id="regPasswordWdh" name="password_wdh"
-                                   minlength="<?= (int)$minPwd ?>" maxlength="<?= (int)$maxPwd ?>"
-                                   autocomplete="new-password" required>
+                                   <?= $attr('password_wdh') ?> autocomplete="new-password">
                         </div>
                         <?php endif; ?>
                     </div>

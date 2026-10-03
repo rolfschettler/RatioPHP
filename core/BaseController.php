@@ -29,23 +29,23 @@ class BaseController
      * APP_BASE wird automatisch vorangestellt -- funktioniert in jedem
      * Installationsverzeichnis.
      */
-    protected function redirect(string $path): void
+    protected function redirect(string $path): never
     {
-        header('Location: ' . APP_BASE . $path);
-        exit;
+        Anfrage::umleiten($path);
     }
 
     /**
      * Meldet einen BENUTZERFEHLER -- erscheint als Dialog
      * (views/components/fehler-dialog.php), auch nach einem Redirect.
-     * Fuer Eingabefehler, die der Benutzer selbst beheben kann.
+     * Fuer Eingabefehler, die der Benutzer selbst beheben kann. Mehrere
+     * Feldpruefungen auf einmal: Core\Pruefung.
      *
      * Systemfehler (Server, Datenbank, Rechte) gehoeren NICHT hierher,
      * sondern nach systemFehler() -- siehe core/Fehler.php.
      */
     protected function flashError(string $message): void
     {
-        Fehler::benutzer($message);
+        Meldungen::melde(Meldungen::BENUTZER, $message);
     }
 
     /**
@@ -74,11 +74,11 @@ class BaseController
     }
 
     /**
-     * Setzt eine Erfolgs-Flash-Message fuer den naechsten Request.
+     * Meldet einen Erfolg -- erscheint oben im Inhaltsbereich.
      */
     protected function flashSuccess(string $message): void
     {
-        $_SESSION['flash_success'] = $message;
+        Meldungen::melde(Meldungen::ERFOLG, $message);
     }
 
     /**

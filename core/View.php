@@ -50,6 +50,18 @@ class View
     }
 
     /**
+     * Rendert eine Komponente aus views/components mit eigenen Variablen und
+     * gibt das HTML zurueck. Fuer Bausteine, die mehrfach mit
+     * unterschiedlichen Werten gebraucht werden (meldungen, modal).
+     *
+     * @param string $name Dateiname ohne Endung, z.B. 'modal'
+     */
+    public static function komponente(string $name, array $data = []): string
+    {
+        return self::capture(VIEW_PATH . '/components/' . $name . '.php', $data);
+    }
+
+    /**
      * Bindet eine PHP-Datei in isoliertem Scope ein und faengt die Ausgabe ab.
      */
     private static function capture(string $file, array $data): string

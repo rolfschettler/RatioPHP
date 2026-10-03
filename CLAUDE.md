@@ -31,6 +31,9 @@ Entwickler:
 │   ├── Portal.php                  <- Definition der Portale (Start, Praefix, Label, Registrierung)
 │   ├── Codec.php                   <- Codieren/DeCodieren aus rechtelib.pas (USERS.passwort)
 │   ├── Fehler.php                  <- System- vs. Benutzerfehler (siehe Abschnitt Fehlerbehandlung)
+│   ├── Meldungen.php               <- Einziger Meldungsspeicher (System, Benutzer, Erfolg)
+│   ├── Pruefung.php                <- Formularpruefung aus Feld-Definitionen
+│   ├── Anfrage.php                 <- Routenpfad des Requests, umleiten()
 │   └── View.php                    <- render() / layout()
 │
 ├── standard/                       <- Standardmodule (gleich fuer alle Kunden)
@@ -56,7 +59,9 @@ Entwickler:
 │   ├── layout.php                  <- Haupt-Layout (portalabhaengig -- siehe Abschnitt Layout)
 │   └── components/
 │       ├── header.php              <- Portalabhaengige Navigation (siehe Abschnitt Portalstruktur)
-│       ├── login-modal.php         <- Login-Modal (nur Mitarbeiterportal)
+│       ├── login-modal.php         <- Login-Modal (jedes Portal, baut auf modal.php auf)
+│       ├── modal.php               <- Einziges Modal-Geruest (View::komponente)
+│       ├── meldungen.php           <- Einzige Meldungsdarstellung (View::komponente)
 │       ├── flash.php               <- Erfolgsmeldungen
 │       ├── systemfehler.php        <- Reservierter Bereich fuer Systemfehler (unter dem Header)
 │       ├── fehler-dialog.php       <- Dialog fuer Benutzerfehler
@@ -900,12 +905,13 @@ $this->redirect('/mitarbeiter');
 - Route `/login` in `config/routes.php` -- nur POST, `['auth' => false, 'portal' => Router::ALLE]`
 - Route `/logout` in `config/routes.php` mit `['auth' => false, 'portal' => Router::ALLE]`
 - `standard/Controllers/AuthController.php` mit `login()` und `logout()` gemaess Muster oben
-- `views/components/login-modal.php` -- Bootstrap-Modal mit Login-Formular
-  - `action="<?= APP_BASE ?>/login"` method POST
+- `views/components/login-modal.php` -- Login-Formular im gemeinsamen
+  Geruest `views/components/modal.php` (`View::komponente('modal', ...)`)
+  - `formAction => '/login'` (POST)
   - Felder: `user`, `password`, verstecktes `portal`
   - Kein `required` auf dem Passwort-Feld
-  - Flash-Fehlermeldung im Modal anzeigen
-  - JS-Snippet: Modal automatisch oeffnen wenn URL-Parameter `?login=1` gesetzt
+  - Benutzerfehler ueber `meldungen.php` im Modal anzeigen
+  - `autoOeffnen` wenn URL-Parameter `?login=1` gesetzt (`Portal::login()`)
 - `views/layout.php` -- Login-Modal einbinden (direkt vor `</body>`), in BEIDEN
   Portalen ohne Bedingung:
   ```php
@@ -1101,16 +1107,69 @@ sie gehoert in `api_post()`, damit jeder Endpunkt sie bekommt.
 
 ## Fehlerbehandlung
 
-Zwei Fehlerarten, getrennt angezeigt. Zentrale Klasse: `core/Fehler.php`.
+Zwei Fehlerarten, getrennt angezeigt -- plus Erfolgsmeldungen, die denselben
+Weg nehmen.
 
 | Art | Beispiele | Anzeige | Melden |
 |---|---|---|---|
-| **Systemfehler** | Server/Port nicht erreichbar, Datenbankfehler, fehlende Rolle auf einen Endpunkt (403), Seite/Endpunkt existiert nicht (404), Token ungueltig (401), PHP-Ausnahme | reservierter Bereich `<div id="app-systemfehler">` direkt unter dem Header (`views/components/systemfehler.php`) -- scrollt nie weg | automatisch durch `\api_post()`, Router und Exception-Handler; sonst `$this->systemFehler($text, $detail)` |
-| **Benutzerfehler** | Pflichtfeld leer, Feld zu lang, Registrierung vom Endpunkt fachlich abgelehnt | Bootstrap-Dialog (`views/components/fehler-dialog.php`), oeffnet sich automatisch | `$this->flashError($text)` |
+| **Systemfehler** | Server/Port nicht erreichbar, Datenbankfehler, fehlende Rolle auf einen Endpunkt (403), Seite/Endpunkt existiert nicht (404), Token ungueltig (401), PHP-Ausnahme | reservierter Bereich `<div id="app-systemfehler">` direkt unter dem Header -- scrollt nie weg | automatisch durch `\api_post()`, Router und Exception-Handler; sonst `$this->systemFehler($text, $detail)` |
+| **Benutzerfehler** | Pflichtfeld leer, Feld zu lang, Zeitraum zu gross, Registrierung vom Endpunkt fachlich abgelehnt | Dialog, oeffnet sich automatisch | Formularfelder: `Core\Pruefung`; sonst `$this->flashError($text)` |
+| Erfolg | Registrierung angelegt | oben im Inhaltsbereich | `$this->flashSuccess($text)` |
 
-Beide liegen in der Session und ueberleben damit einen Redirect. Falsches
-Passwort beim Login ist ein Benutzerfehler, erscheint aber im Login-Modal
-(`?login=1`) statt im Dialog.
+### Bausteine -- jeder genau einmal
+
+| Datei | Aufgabe |
+|---|---|
+| `core/Meldungen.php` | EINZIGER Speicher (Session) fuer alle Meldungsarten. `ARTEN` legt Farbe, Icon und Praefix je Art fest. Niemand sonst greift auf die Session-Schluessel zu. |
+| `core/Fehler.php` | Klassifizierung der API-Antworten, `Fehler::ok()`, `Fehler::istSystem()`, `Fehler::system()`, Fehlerseite, Exception-Handler |
+| `core/Pruefung.php` | Formularpruefung aus Feld-Definitionen -- erzeugt alle Benutzerfehler-Texte einheitlich ("Feld: Problem.") und die HTML-Attribute (`maxlength`, `minlength`, `required`) |
+| `core/Anfrage.php` | Routenpfad des Requests (`pfad()`, `normalisiere()`) und `umleiten()` -- einziges `header('Location: ...')` |
+| `views/components/meldungen.php` | EINZIGE Darstellung von Meldungen, fuer alle Arten und Orte |
+| `views/components/modal.php` | EINZIGES Modal-Geruest inkl. Auto-Oeffnen -- Login-Modal und Fehler-Dialog bauen darauf auf |
+| `views/components/systemfehler.php` | reservierter Bereich -- Aufruf von `meldungen.php` |
+| `views/components/fehler-dialog.php` | Dialog -- `modal.php` + `meldungen.php` |
+| `views/components/flash.php` | Erfolg -- Aufruf von `meldungen.php` |
+
+Komponenten mit eigenen Variablen werden mit `View::komponente('name', [...])`
+gerendert.
+
+Meldungen liegen in der Session und ueberleben damit einen Redirect. Gleiche
+Texte werden zusammengefasst, ihre Details gesammelt.
+
+**Regel fuer Modals:** Ein Modal, das beim Laden ohnehin aufgeht, zeigt die
+Benutzerfehler selbst an und holt sie damit ab -- so erscheint falsches
+Passwort im Login-Modal (`Portal::login()`, also `?login=1`) und nicht
+zusaetzlich im Fehler-Dialog. Deshalb steht `fehler-dialog.php` im Layout
+nach allen anderen Modals.
+
+### Formularpruefung mit Core\Pruefung
+
+Jedes Formularfeld hat EINE Definition im Controller. Daraus entstehen Label,
+`maxlength`/`required` im View UND die serverseitige Pruefung samt
+Fehlertext -- keine Grenze und kein Label steht doppelt. Muster:
+`RegistrierungController::FELDER`.
+
+```php
+// Controller
+private const FELDER = [
+    'name1'    => ['bezeichnung' => 'Vorname', 'pflicht' => true, 'max_zeichen' => 30],
+    'password' => ['bezeichnung' => 'Passwort', 'pflicht' => true, 'min_bytes' => 6, 'max_bytes' => 72, 'geheim' => true],
+];
+
+$werte = Pruefung::werteAusPost(self::FELDER);
+if (!Pruefung::formular(self::FELDER, $werte)->melde()) {
+    // alle Fehler stehen gesammelt im Dialog -- Formular erneut zeigen,
+    // Eingaben ohne Passwoerter: Pruefung::ohneGeheime(self::FELDER, $werte)
+}
+
+// View -- Definitionen kommen per render() als $felder
+<input name="name1" <?= Pruefung::htmlAttribute($felder, 'name1') ?>>
+```
+
+Schluessel: `bezeichnung`, `pflicht`, `max_zeichen` (mb_strlen), `min_bytes`/
+`max_bytes` (strlen, Passwort), `email`, `ganzzahl` `[min, max]`, `auswahl`,
+`gleich` (Wiederholungsfeld), `geheim` (nicht trimmen, nicht zurueckgeben),
+`gross` (Grossbuchstaben). Beschreibung in `core/Pruefung.php`.
 
 ### Klassifizierung der RATIOserver-Antworten
 
@@ -1132,11 +1191,21 @@ aufgeloest) muss `supervisor`, eine Rolle der Route oder den Endpunkt selbst
 
 ### Regeln fuer Claude Code
 
+- Erfolg eines Endpunkts mit `Fehler::ok($antwort)` pruefen -- nie
+  `($antwort['status'] ?? '') === 'OK'` ausschreiben.
 - Fehler einer `\api_post()`-Antwort mit `$this->apiFehler($antwort, 'Ersatztext')`
   melden -- Systemfehler sind dann schon gemeldet und erscheinen NICHT doppelt
   als Dialog. Alternativ `Fehler::istSystem($antwort)` pruefen.
 - Systemfehler NIE per `flashError()` melden, Benutzerfehler NIE per
   `systemFehler()`.
+- Formularfelder IMMER ueber Feld-Definitionen und `Core\Pruefung` pruefen --
+  keine handgeschriebenen `if (mb_strlen(..) > ..) flashError(..)`-Bloecke.
+- Keine eigene Meldungs- oder Modal-Darstellung: `meldungen.php` bzw.
+  `modal.php` verwenden. Kein `alert alert-...` und kein `modal fade` in Views.
+- Kein direkter Zugriff auf `$_SESSION` fuer Meldungen -- nur ueber
+  `Core\Meldungen` (bzw. `flashError()`/`flashSuccess()`/`Fehler::system()`).
+- Umleitungen nur ueber `redirect()` bzw. `Anfrage::umleiten()`, Login-Aufforderung
+  ueber `Portal::login($portal)` -- `?login=1` nie selbst anhaengen.
 - Technische Details (Endpunkt, HTTP-Status, Servermeldung, Datei:Zeile) nur
   als `$detail` -- sichtbar ausschliesslich bei `DEBUG`.
 - Der Tag `#app-systemfehler` wird immer ausgegeben (leer mit `hidden`) und ist
@@ -1609,19 +1678,23 @@ Abgefragt ueber den `header`-Block (`"fields":"*"`) bzw. `RDB$RELATION_FIELDS`:
 
 ### Abgleich Formularfeld -> Spalte
 
-| Feld | Grenze | Woher | Serverseitige Pruefung |
+Alle Registrierungsgrenzen stehen in `RegistrierungController::FELDER`
+(Abweichungen je Portal in `PORTALE[..]['felder']`) und werden von
+`Core\Pruefung` geprueft:
+
+| Feld | Grenze | Woher | Schluessel in FELDER |
 |---|---|---|---|
-| `name1`, `name2` | 30 | ADRESSEN bzw. PERSONALSTAMM | `MAX_LAENGE` |
-| `strasse`, `ort` | 30 | ADRESSEN | `MAX_LAENGE` |
-| `plz` | 15 | ADRESSEN | `MAX_LAENGE` |
-| `telefon1` | 25 | ADRESSEN | `MAX_LAENGE` |
-| `username` (Kunde) | 60 | ADRESSEN.email -- **nicht** REGISTRIERUNG.username (120), die E-Mail landet in beiden Feldern, die kleinere Grenze bindet | `MAX_LAENGE` |
-| `username` (Fahrer) | 15 | PERSONALSTAMM.zeichen | `MAX_ZEICHEN` |
-| `loginname` | 20 | USERS.loginname | `MAX_LOGINNAME` |
-| `login_password` | 20 | USERS.passwort | `MAX_USERS_PASSWORT` in `pruefeMitarbeiter()` |
-| `password`, `password_wdh` | 72 Bytes | Bcrypt | `MAX_PASSWORT_BYTES` |
-| `kennziffer` | 10 Ziffern | ADRESSEN.kennziffer (ftinteger) | `MAX_KENNZIFFER` |
-| `anrede` | Whitelist | `ANREDEN` (max 7 Zeichen < 20) | `in_array()` |
+| `name1`, `name2` | 30 | ADRESSEN bzw. PERSONALSTAMM | `max_zeichen` |
+| `strasse`, `ort` | 30 | ADRESSEN | `max_zeichen` |
+| `plz` | 15 | ADRESSEN | `max_zeichen` |
+| `telefon1` | 25 | ADRESSEN | `max_zeichen` |
+| `username` (Kunde) | 60 | ADRESSEN.email -- **nicht** REGISTRIERUNG.username (120), die E-Mail landet in beiden Feldern, die kleinere Grenze bindet | `max_zeichen`, `email` |
+| `username` (Fahrer) | 15 | PERSONALSTAMM.zeichen | `max_zeichen`, `gross` (Abweichung in PORTALE) |
+| `loginname` | 20 | USERS.loginname | `max_zeichen` -- geprueft in `pruefeMitarbeiter()` |
+| `login_password` | 20 | USERS.passwort | `max_zeichen` -- geprueft in `pruefeMitarbeiter()` |
+| `password`, `password_wdh` | 72 Bytes | Bcrypt | `min_bytes`, `max_bytes`, `gleich` |
+| `kennziffer` | 10 Ziffern | ADRESSEN.kennziffer (ftinteger) | `ganzzahl`, `max_zeichen` |
+| `anrede` | Whitelist | `ANREDEN` (max 7 Zeichen < 20) | `auswahl` |
 | Einsatz-Filter | 61 / 30 / 120 | durchsuchte EINSATZ-Spalten | keine -- reine Anzeigefilter, kein Insert |
 
 ### Warum das Passwort bei 72 Bytes endet
@@ -1644,8 +1717,9 @@ der 60 Zeichen lange Hash, nie das Passwort selbst.
   nennt Typ und Laenge (`"name1":"ftstring 30"`)
 - Schreibt ein Feld in MEHRERE Spalten (wie die E-Mail in `username` und
   `email`), gilt die **kleinste** Grenze
-- Laengen als benannte Konstante im Controller, nie als Zahl im View --
-  der View bekommt den Wert ueber `render()`
+- Laengen in der Feld-Definition des Controllers, nie als Zahl im View --
+  der View bekommt die Definitionen ueber `render()` und erzeugt die
+  Attribute mit `Pruefung::htmlAttribute()`
 - `mb_strlen()` fuer Textfelder, `strlen()` nur fuer Passwoerter
 
 ---
@@ -1768,7 +1842,8 @@ weil das Pattern die Portalstruktur und die Fehlerbehandlung nicht kennt:
 3. Der Benutzername im Footer erscheint in jedem Portal, sobald angemeldet.
 4. Direkt nach dem Header: `include VIEW_PATH . '/components/systemfehler.php'`
    (reservierter Systemfehler-Bereich).
-5. Nach dem Login-Modal: `include VIEW_PATH . '/components/fehler-dialog.php'`.
+5. Nach dem Login-Modal: `include VIEW_PATH . '/components/fehler-dialog.php'`
+   -- muss das letzte Modal sein (siehe Abschnitt Fehlerbehandlung).
 
 Ebenso weicht `core/Router.php` deutlich ab -- das Pattern kennt keine Portale:
 

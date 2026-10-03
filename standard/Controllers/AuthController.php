@@ -38,8 +38,8 @@ class AuthController extends BaseController
     /**
      * POST /login -- Login gegen RATIOserver verarbeiten.
      * Bei Erfolg: beide Cookies setzen, zurueck zur Portal-Startseite.
-     * Bei Fehler: Flash-Message + zurueck auf <portal>?login=1
-     * (das Modal oeffnet sich dann automatisch per JS).
+     * Bei Fehler: Benutzerfehler + zurueck auf Portal::login() -- das Modal
+     * oeffnet sich und zeigt die Meldung.
      */
     public function login(): void
     {
@@ -62,17 +62,12 @@ class AuthController extends BaseController
         ]);
 
         if (empty($response['token'])) {
-            // Systemfehler (Server nicht erreichbar, ...) stehen bereits im
-            // reservierten Bereich -- das Modal bleibt zu, damit er sichtbar ist
-            if (Fehler::istSystem($response)) {
-                $this->redirect($ziel);
-                return;
-            }
-
-            // Falsche Zugangsdaten -- Meldung erscheint im Login-Modal
-            $this->flashError($response['message'] ?? 'Login fehlgeschlagen');
-            // ?login=1 oeffnet das Modal automatisch per JS
-            $this->redirect($ziel . (str_contains($ziel, '?') ? '&' : '?') . 'login=1');
+            // Falsche Zugangsdaten erscheinen im wieder geoeffneten Login-Modal.
+            // Ein Systemfehler (Server nicht erreichbar, ...) steht bereits im
+            // reservierten Bereich -- dann bleibt das Modal zu, damit er
+            // sichtbar ist.
+            $this->apiFehler($response, 'Login fehlgeschlagen');
+            $this->redirect(Fehler::istSystem($response) ? $ziel : Portal::login($portal));
             return;
         }
 

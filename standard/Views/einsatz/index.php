@@ -4,7 +4,6 @@
 // .app-main scrollt bereits horizontal -- kein table-responsive Wrapper.
 
 /** @var array  $rows      Gefilterte und sortierte Einsaetze */
-/** @var string $warnung   Hinweis bei abgeschnittenem Ergebnis (HTML, leer = keiner) */
 /** @var string $fFahrer   Suchbegriff Fahrer  (lowercase, fuers Highlight) */
 /** @var string $fFahrzeug Suchbegriff Fahrzeug */
 /** @var string $fBegriff  Suchbegriff Bezeichnung/Dienst-Nr. */
@@ -52,12 +51,6 @@ $sortIcon = static function (string $col) use ($sortCol, $sortDir): string {
         : '<i class="bi bi-arrow-down ms-1"></i>';
 };
 ?>
-<?php if (!empty($warnung)): ?>
-<div class="alert alert-warning d-flex align-items-center mb-3" role="alert">
-    <i class="bi bi-exclamation-triangle-fill me-2"></i>
-    <div><?= $warnung ?></div>
-</div>
-<?php endif; ?>
 <table class="app-table" style="min-width:1000px;">
     <thead>
         <tr>

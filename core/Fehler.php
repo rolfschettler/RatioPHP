@@ -4,20 +4,18 @@
  *
  * Unterscheidet zwei Fehlerarten, die getrennt angezeigt werden:
  *
- *   SYSTEMFEHLER  -- der Benutzer kann nichts dagegen tun: RATIOserver nicht
- *                    erreichbar, Datenbankfehler, fehlende Berechtigung auf
- *                    einen Endpunkt (HTTP 403), Seite oder Endpunkt existiert
- *                    nicht (404), abgelaufene Anmeldung (401), PHP-Ausnahme.
- *                    Anzeige im reservierten Bereich unter dem Header
- *                    (views/components/systemfehler.php, id="app-systemfehler").
+ *   SYSTEMFEHLER   -- der Benutzer kann nichts dagegen tun: RATIOserver nicht
+ *                     erreichbar, Datenbankfehler, fehlende Berechtigung auf
+ *                     einen Endpunkt (HTTP 403), Seite oder Endpunkt existiert
+ *                     nicht (404), abgelaufene Anmeldung (401), PHP-Ausnahme.
+ *                     Meldung: Fehler::system()
  *
  *   BENUTZERFEHLER -- der Benutzer kann es selbst beheben: Pflichtfeld leer,
- *                    Feld zu lang, Registrierung abgelehnt, falsches Passwort.
- *                    Anzeige als Dialog (views/components/fehler-dialog.php).
+ *                     Feld zu lang, Registrierung abgelehnt, falsches Passwort.
+ *                     Meldung: BaseController::flashError() bzw. Core\Pruefung
  *
- * Beide Arten liegen in der Session, damit sie einen Redirect ueberleben.
- * Benutzerfehler unter dem bisherigen Schluessel flash_error -- das
- * Login-Modal zeigt ihn bei ?login=1 selbst an.
+ * Gespeichert und angezeigt werden beide ueber Core\Meldungen -- dort steht
+ * auch, wo welche Art erscheint.
  *
  * Klassifizierung der RATIOserver-Antworten (verifiziert gegen
  * D:\Delphi\RATIOserver\Shared\WebModuleUnit1.pas):
@@ -41,82 +39,26 @@ namespace Core;
 
 class Fehler
 {
-    public const SYSTEM   = 'system';
-    public const BENUTZER = 'benutzer';
-
-    private const SESSION_SYSTEM   = 'systemfehler';
-    private const SESSION_BENUTZER = 'flash_error';
-
     /**
      * Endpunkte, bei denen HTTP 401 eine falsche Eingabe des Benutzers
      * bedeutet und keinen Systemfehler.
      */
     private const ANMELDE_ENDPUNKTE = ['/login'];
 
-    // ------------------------------------------------------------------
-    // Melden
-    // ------------------------------------------------------------------
+    /** Text fuer jeden nicht abgefangenen PHP-Fehler. */
+    private const INTERNER_FEHLER = 'Es ist ein interner Fehler aufgetreten.';
 
     /**
-     * Meldet einen Systemfehler fuer den reservierten Bereich.
+     * Meldet einen Systemfehler fuer den reservierten Bereich und schreibt
+     * die Details ins Fehlerprotokoll.
      *
      * @param string $meldung Text fuer den Benutzer -- ohne interne Details
      * @param string $detail  Technische Details, nur bei DEBUG sichtbar
      */
     public static function system(string $meldung, string $detail = ''): void
     {
-        $liste = $_SESSION[self::SESSION_SYSTEM] ?? [];
-
-        // Dieselbe Meldung nur einmal -- die Details werden gesammelt.
-        // Eine Seite mit vier gesperrten Endpunkten zeigt also EINE Zeile.
-        if (!isset($liste[$meldung])) {
-            $liste[$meldung] = [];
-        }
-        if ($detail !== '' && !in_array($detail, $liste[$meldung], true)) {
-            $liste[$meldung][] = $detail;
-        }
-
-        $_SESSION[self::SESSION_SYSTEM] = $liste;
-
-        if ($detail !== '') {
-            error_log('Systemfehler: ' . $meldung . ' -- ' . $detail);
-        }
-    }
-
-    /**
-     * Meldet einen Benutzerfehler fuer den Fehler-Dialog.
-     * Mehrere Meldungen im selben Request werden untereinander angezeigt.
-     */
-    public static function benutzer(string $meldung): void
-    {
-        $bisher = (string)($_SESSION[self::SESSION_BENUTZER] ?? '');
-        $_SESSION[self::SESSION_BENUTZER] = $bisher === '' ? $meldung : $bisher . "\n" . $meldung;
-    }
-
-    // ------------------------------------------------------------------
-    // Auslesen (fuer die View-Komponenten)
-    // ------------------------------------------------------------------
-
-    /**
-     * Liefert die Systemfehler und loescht sie.
-     *
-     * @return array<string, string[]> Meldung => Details
-     */
-    public static function holeSystem(): array
-    {
-        $liste = $_SESSION[self::SESSION_SYSTEM] ?? [];
-        unset($_SESSION[self::SESSION_SYSTEM]);
-        return is_array($liste) ? $liste : [];
-    }
-
-    /**
-     * Liefert den Benutzerfehler und loescht ihn -- '' wenn keiner vorliegt.
-     */
-    public static function holeBenutzer(): string
-    {
-        $meldung = (string)($_SESSION[self::SESSION_BENUTZER] ?? '');
-        unset($_SESSION[self::SESSION_BENUTZER]);
-        return $meldung;
+        Meldungen::melde(Meldungen::SYSTEM, $meldung, $detail);
+        error_log('Systemfehler: ' . $meldung . ($detail !== '' ? ' -- ' . $detail : ''));
     }
 
     // ------------------------------------------------------------------
@@ -124,12 +66,20 @@ class Fehler
     // ------------------------------------------------------------------
 
     /**
+     * Hat der Endpunkt den Vorgang ausgefuehrt? (status "OK")
+     */
+    public static function ok(array $antwort): bool
+    {
+        return ($antwort['status'] ?? '') === 'OK';
+    }
+
+    /**
      * Ist die Antwort von api_post() ein Systemfehler? Dann wurde er bereits
      * gemeldet -- der Controller darf ihn NICHT noch einmal als Dialog zeigen.
      */
     public static function istSystem(array $antwort): bool
     {
-        return ($antwort['fehlerart'] ?? '') === self::SYSTEM;
+        return ($antwort['fehlerart'] ?? '') === Meldungen::SYSTEM;
     }
 
     /**
@@ -179,7 +129,7 @@ class Fehler
         return [
             'status'    => 'error',
             'message'   => $meldung,
-            'fehlerart' => self::SYSTEM,
+            'fehlerart' => Meldungen::SYSTEM,
             'http'      => $http,
         ];
     }
@@ -194,46 +144,25 @@ class Fehler
      */
     public static function registriereHandler(): void
     {
-        set_exception_handler([self::class, 'behandleAusnahme']);
-        register_shutdown_function([self::class, 'behandleAbbruch']);
+        set_exception_handler(static function (\Throwable $e): void {
+            self::seite(500, self::INTERNER_FEHLER,
+                get_class($e) . ': ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+        });
+
+        // Fatale Fehler (Parse-Fehler, Speicher, Laufzeit) erreichen den
+        // Exception-Handler nicht -- sie werden beim Beenden abgefangen
+        register_shutdown_function(static function (): void {
+            $f = error_get_last();
+            if ($f !== null && ($f['type'] & (E_ERROR | E_PARSE | E_CORE_ERROR | E_COMPILE_ERROR))) {
+                self::seite(500, self::INTERNER_FEHLER, $f['message'] . ' in ' . $f['file'] . ':' . $f['line']);
+            }
+        });
     }
 
     /**
-     * Nicht abgefangene Ausnahme -- Fehlerseite mit Systemfehler.
-     */
-    public static function behandleAusnahme(\Throwable $e): void
-    {
-        error_log((string)$e);
-        self::seite(
-            500,
-            'Es ist ein interner Fehler aufgetreten.',
-            get_class($e) . ': ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()
-        );
-    }
-
-    /**
-     * Fatale PHP-Fehler (Parse-Fehler, Speicher, Laufzeit) erreichen den
-     * Exception-Handler nicht -- sie werden hier beim Beenden abgefangen.
-     */
-    public static function behandleAbbruch(): void
-    {
-        $fehler = error_get_last();
-        if ($fehler === null
-            || !($fehler['type'] & (E_ERROR | E_PARSE | E_CORE_ERROR | E_COMPILE_ERROR))) {
-            return;
-        }
-
-        self::seite(
-            500,
-            'Es ist ein interner Fehler aufgetreten.',
-            $fehler['message'] . ' in ' . $fehler['file'] . ':' . $fehler['line']
-        );
-    }
-
-    /**
-     * Gibt eine vollstaendige Fehlerseite im Layout aus und beendet den
-     * Request. Die Meldung steht im reservierten Systemfehler-Bereich, der
-     * Inhalt bietet nur den Weg zurueck zur Portal-Startseite.
+     * Gibt eine vollstaendige Fehlerseite im Layout des passenden Portals aus
+     * und beendet den Request. Die Meldung steht im reservierten
+     * Systemfehler-Bereich, der Inhalt bietet nur den Weg zurueck.
      */
     public static function seite(int $httpStatus, string $meldung, string $detail = ''): never
     {
@@ -248,38 +177,18 @@ class Fehler
         }
 
         self::system($meldung, $detail);
-        $portal = self::portalAusRequest();
 
         try {
             echo View::render('fehler/index', [
                 'page_title' => $meldung,
-                'portal'     => $portal,
+                'portal'     => Portal::ausPfad(Anfrage::pfad()) ?? Portal::DEFAULT,
                 'http'       => $httpStatus,
             ]);
         } catch (\Throwable $e) {
             // Letzte Rueckfallebene: auch das Layout ist kaputt
             error_log((string)$e);
             echo '<h1>' . $httpStatus . '</h1><p>' . htmlspecialchars($meldung) . '</p>';
-            if (defined('DEBUG') && DEBUG && $detail !== '') {
-                echo '<pre>' . htmlspecialchars($detail) . '</pre>';
-            }
         }
         exit;
-    }
-
-    /**
-     * Portal des aktuellen Requests aus dem Pfad -- damit eine Fehlerseite
-     * im richtigen Portal (Header, Login, Startseite) erscheint.
-     */
-    private static function portalAusRequest(): string
-    {
-        $uri  = (string)parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
-        $base = defined('APP_BASE') ? APP_BASE : '';
-        if ($base !== '' && str_starts_with($uri, $base)) {
-            $uri = substr($uri, strlen($base));
-        }
-        $uri = '/' . ltrim($uri, '/');
-
-        return Portal::ausPfad($uri) ?? Portal::DEFAULT;
     }
 }

@@ -95,13 +95,12 @@ class EinsatzController extends BaseController
 
         // Limit-Pruefung auf der ROHEN Satzzahl vor der In-Memory-Filterung.
         // Ist das Limit erreicht, ist der Zeitraum zu gross und das Ergebnis
-        // unvollstaendig -- dann werden KEINE Datensaetze angezeigt, nur die
-        // Warnung. Der Benutzer muss den Zeitraum eingrenzen.
-        $warnung = '';
+        // unvollstaendig -- dann werden KEINE Datensaetze angezeigt, nur der
+        // Hinweis. Der Benutzer muss den Zeitraum eingrenzen: Benutzerfehler.
         if (count($einsaetze) >= self::EINSATZ_LIMIT - 1) {
-            $warnung = 'Der Zeitraum liefert mehr als ' . (self::EINSATZ_LIMIT - 1)
-                . ' Eins&auml;tze &ndash; es werden keine Ergebnisse angezeigt. '
-                . 'Bitte den Zeitraum eingrenzen.';
+            $this->flashError('Der Zeitraum liefert mehr als ' . (self::EINSATZ_LIMIT - 1)
+                . ' Einsätze – es werden keine Ergebnisse angezeigt. '
+                . 'Bitte den Zeitraum eingrenzen.');
             $einsaetze = [];   // nichts anzeigen
         }
 
@@ -206,7 +205,6 @@ class EinsatzController extends BaseController
                     ' . count($rows) . ' Eins&auml;tze
                 </span>',
             'toolbar'   => $toolbar,
-            'warnung'   => $warnung,
             'rows'      => $rows,
             'fFahrer'   => $fFahrer,
             'fFahrzeug' => $fFahrzeug,
