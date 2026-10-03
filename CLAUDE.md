@@ -1715,6 +1715,7 @@ Abgefragt ueber den `header`-Block (`"fields":"*"`) bzw. `RDB$RELATION_FIELDS`:
 | REGISTRIERUNG | username | 120 |
 | REGISTRIERUNG | pwd2 | 255 |
 | REGISTRIERUNG | typ | 30 |
+| REGISTRIERUNG | email | 60 |
 | USERS | loginname | 20 |
 | USERS | passwort | 20 |
 | PERSONALSTAMM | zeichen | 15 |

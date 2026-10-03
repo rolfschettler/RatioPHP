@@ -71,6 +71,12 @@ $router->add('/mitarbeiter/einsatz', 'Standard\Controllers\EinsatzController', '
 $router->add('/mitarbeiter/anmietimport',           'Standard\Controllers\AnmietimportController', 'index');
 $router->add('/mitarbeiter/anmietimport/hochladen', 'Standard\Controllers\AnmietimportController', 'hochladen');
 
+// REGISTRIERUNG verwalten -- geschuetzt, Liste mit Filter/Suche, Bearbeiten
+// (typ, gesperrt) und Loeschen ueber /registrierung/
+$router->add('/mitarbeiter/registrierungen',           'Standard\Controllers\RegistrierungsverwaltungController', 'index');
+$router->add('/mitarbeiter/registrierungen/speichern', 'Standard\Controllers\RegistrierungsverwaltungController', 'speichern');
+$router->add('/mitarbeiter/registrierungen/loeschen',  'Standard\Controllers\RegistrierungsverwaltungController', 'loeschen');
+
 // ---------------------------------------------------------------------------
 // Fahrerportal -- Einstieg per URL, Login laeuft ueber das Modal
 // ---------------------------------------------------------------------------
