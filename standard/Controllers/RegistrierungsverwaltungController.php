@@ -74,21 +74,21 @@ class RegistrierungsverwaltungController extends BaseController
      * Ziffern und die Zeichen eines Endpunkts ('/dispo/*'). Keine Trenner
      * (Zeilenumbruch, Komma, Semikolon) -- die zerlegen im Backend die Liste.
      */
-    private const ROLLE_MUSTER = '~^@?[A-Za-z0-9_./*-]{1,100}$~';
+    private const ROLLE_MAX    = 100;
+    private const ROLLE_MUSTER = '~^@?[A-Za-z0-9_./*-]{1,' . self::ROLLE_MAX . '}$~';
 
     /** Immer anbietbar, auch wenn noch kein Zugang sie hat -- darf alles. */
     private const ROLLE_SUPERVISOR = 'supervisor';
 
     /**
-     * Felder des Bearbeiten-Dialogs. Die Rollen-Checkboxen (rollen[]) sind
-     * eine Mehrfachauswahl und werden in pruefeRollen() geprueft.
+     * Felder des Bearbeiten-Dialogs. Die Rollen (rollen[], eine Mehrfachauswahl
+     * aus der Autocomplete-Liste) prueft pruefeRollen().
      * Die Auswahl fuer gesperrt setzt felder().
      */
     private const FELDER = [
-        'nr'             => ['bezeichnung' => 'Nr.', 'pflicht' => true, 'ganzzahl' => [1, 2147483647], 'max_zeichen' => 10],
-        'email'          => ['bezeichnung' => 'E-Mail', 'email' => true, 'max_zeichen' => 60],
-        'gesperrt'       => ['bezeichnung' => 'Status', 'pflicht' => true],
-        'rollen_weitere' => ['bezeichnung' => 'Weitere Rollen', 'max_zeichen' => 500],
+        'nr'       => ['bezeichnung' => 'Nr.', 'pflicht' => true, 'ganzzahl' => [1, 2147483647], 'max_zeichen' => 10],
+        'email'    => ['bezeichnung' => 'E-Mail', 'email' => true, 'max_zeichen' => 60],
+        'gesperrt' => ['bezeichnung' => 'Status', 'pflicht' => true],
     ];
 
     /**
@@ -112,29 +112,19 @@ class RegistrierungsverwaltungController extends BaseController
             'orderby' => 'username',
         ]);
 
-        // Bekannte Rollen fuer die Auswahl im Dialog: Blaupausen, alle bereits
-        // vergebenen Rollen und supervisor. Schluessel klein -- das Backend
-        // vergleicht ohne Gross-/Kleinschreibung.
-        $bekannt = [self::ROLLE_SUPERVISOR => self::ROLLE_SUPERVISOR];
-
-        $alle = [];
+        $vorlagen = [];
+        $vergeben = [];
+        $alle     = [];
         foreach ($antwort['data'] ?? [] as $r) {
             $r['rollen_liste'] = $this->rollen($r['rollen'] ?? null);
 
             if ($this->istBlaupause($r)) {
-                $name = mb_strtoupper((string)$r['username']);
-                $bekannt[mb_strtolower($name)] = $name;
+                $vorlagen[] = mb_strtoupper((string)$r['username']);
                 continue;
             }
-            foreach ($r['rollen_liste'] as $rolle) {
-                $bekannt[mb_strtolower($rolle)] ??= $rolle;
-            }
+            array_push($vergeben, ...$r['rollen_liste']);
             $alle[] = $r;
         }
-
-        // Blaupausen zuerst, dann alphabetisch
-        uksort($bekannt, static fn($a, $b) =>
-            [!str_starts_with($a, '@'), $a] <=> [!str_starts_with($b, '@'), $b]);
 
         $rows = $this->filtere($alle, $fTyp, $fSuche);
 
@@ -152,7 +142,10 @@ class RegistrierungsverwaltungController extends BaseController
             'fSuche'        => $fSuche,
             'typen'         => $this->typLabels(),
             'gesperrtWerte' => self::GESPERRT,
-            'bekannteRollen'=> $bekannt,
+            'rollenVorschlaege' => $this->rollenVorschlaege($vorlagen, $vergeben),
+            'rolleMax'      => self::ROLLE_MAX,
+            // Dasselbe Muster fuer die Eingabehilfe im Browser, ohne Begrenzer
+            'rolleMuster'   => substr(self::ROLLE_MUSTER, 1, -1),
             'felder'        => $this->felder(),
             'modul_url'     => Portal::praefix(self::PORTAL) . self::MODUL,
             'eigener'       => mb_strtoupper((string)($_COOKIE['jwt_user'] ?? '')),
@@ -173,7 +166,7 @@ class RegistrierungsverwaltungController extends BaseController
         $felder   = $this->felder();
         $werte    = Pruefung::werteAusPost($felder);
         $pruefung = Pruefung::formular($felder, $werte);
-        $rollen   = $this->pruefeRollen($werte['rollen_weitere'], $pruefung);
+        $rollen   = $this->pruefeRollen($pruefung);
         if (!$pruefung->melde()) {
             $this->redirect($zurueck);
         }
@@ -280,17 +273,79 @@ class RegistrierungsverwaltungController extends BaseController
     }
 
     /**
-     * Rollen aus den Checkboxen (rollen[]) und dem Freitextfeld zusammenfuehren
-     * und pruefen. Fehler landen in $pruefung.
+     * Vorschlaege fuer die Autocomplete-Liste der Rollen, gruppiert:
+     *
+     *   Vorlagen   Rollen-Blaupausen aus REGISTRIERUNG ('@MITARBEITER')
+     *   Rollen     supervisor und alle bereits vergebenen Rollen, die kein
+     *              Endpunkt sind
+     *   Bereiche   '/<prefix>/*' je Endpunkt-Gruppe -- erlaubt alle Endpunkte
+     *              darunter (HasRouteAccess, Platzhalter am Ende)
+     *   Endpunkte  einzelne Endpunkte aus /getpublicendpoints
+     *
+     * Nur Endpunkte mit auth=true: ohne Anmeldung prueft das Backend keine
+     * Rollen, ein Eintrag waere wirkungslos. Rollen, die das Backend einer
+     * Route zusaetzlich erlaubt (AddRoute-Parameter Roles), liefert der
+     * Endpunkt nicht -- sie erscheinen erst, wenn ein Zugang sie hat.
+     *
+     * Faellt /getpublicendpoints aus, ist der Systemfehler bereits gemeldet;
+     * die Liste enthaelt dann nur Vorlagen und Rollen.
+     *
+     * @param string[] $vorlagen Benutzernamen der Blaupausen
+     * @param string[] $vergeben Rollen aller Zugaenge
+     * @return array<int, array{wert: string, gruppe: string}>
+     */
+    private function rollenVorschlaege(array $vorlagen, array $vergeben): array
+    {
+        $gruppen = ['Vorlagen' => $vorlagen, 'Rollen' => [self::ROLLE_SUPERVISOR], 'Bereiche' => [], 'Endpunkte' => []];
+
+        foreach ($vergeben as $rolle) {
+            $gruppen[str_starts_with($rolle, '/') ? 'Endpunkte' : 'Rollen'][] = $rolle;
+        }
+
+        $antwort = \api_post('/getpublicendpoints', []);
+        foreach ($antwort['prefixes'] ?? [] as $gruppe) {
+            $prefix = (string)($gruppe['prefix'] ?? '');
+            $mitAuth = false;
+            foreach ($gruppe['endpoints'] ?? [] as $endpunkt) {
+                if (!empty($endpunkt['auth'])) {
+                    $gruppen['Endpunkte'][] = (string)($endpunkt['path'] ?? '');
+                    $mitAuth = true;
+                }
+            }
+            if ($prefix !== '' && $mitAuth) {
+                $gruppen['Bereiche'][] = '/' . $prefix . '/*';
+            }
+        }
+
+        // Dubletten ohne Gross-/Kleinschreibung entfernen -- die erste
+        // Gruppe gewinnt (eine vergebene '/adressen/*' bleibt unter Bereiche).
+        $vorschlaege = [];
+        $gesehen     = [];
+        foreach ($gruppen as $name => $werte) {
+            sort($werte, SORT_NATURAL | SORT_FLAG_CASE);
+            foreach ($werte as $wert) {
+                $schluessel = mb_strtolower($wert);
+                if ($wert === '' || isset($gesehen[$schluessel]) || !preg_match(self::ROLLE_MUSTER, $wert)) {
+                    continue;
+                }
+                $gesehen[$schluessel] = true;
+                $vorschlaege[] = ['wert' => $wert, 'gruppe' => $name];
+            }
+        }
+        return $vorschlaege;
+    }
+
+    /**
+     * Rollen aus der Auswahl (rollen[]) pruefen. Fehler landen in $pruefung.
+     *
+     * Freie Eingaben sind erlaubt -- die Vorschlagsliste ist eine Hilfe, keine
+     * Whitelist (Rollen wie 'dispo' kennt nur das Backend).
      *
      * @return string[] bereinigte Rollen, ohne Dubletten (Gross-/Kleinschreibung egal)
      */
-    private function pruefeRollen(string $weitere, Pruefung $pruefung): array
+    private function pruefeRollen(Pruefung $pruefung): array
     {
-        $eingaben = array_merge(
-            array_map('strval', array_filter((array)($_POST['rollen'] ?? []), 'is_string')),
-            preg_split('/[\r\n,;]+/', $weitere)
-        );
+        $eingaben = array_filter((array)($_POST['rollen'] ?? []), 'is_string');
 
         $rollen = [];
         foreach ($eingaben as $rolle) {

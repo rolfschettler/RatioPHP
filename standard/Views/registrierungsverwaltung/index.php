@@ -14,7 +14,9 @@ use Core\View;
 /** @var string $fSuche         Suchbegriff (fuers Highlight) */
 /** @var array  $typen          Portalname => Anzeige */
 /** @var array  $gesperrtWerte  'NEIN'|'JA' => Anzeige */
-/** @var array  $bekannteRollen Rolle klein => Anzeige, fuer die Checkboxen */
+/** @var array  $rollenVorschlaege Autocomplete-Liste der Rollen [wert, gruppe] */
+/** @var int    $rolleMax       Hoechstlaenge eines Rollennamens */
+/** @var string $rolleMuster    JS-RegExp fuer freie Rolleneingaben */
 /** @var array  $felder         Feld-Definitionen des Bearbeiten-Dialogs */
 /** @var string $modul_url      Modulpfad ohne APP_BASE */
 /** @var string $eigener        Benutzername des Angemeldeten, gross */
@@ -92,7 +94,7 @@ $filterFelder = '<input type="hidden" name="f_typ" value="' . $h($_GET['typ'] ??
                             data-typ="<?= $h(strip_tags($typAnzeige($typ))) ?>"
                             data-email="<?= $h($r['email']) ?>"
                             data-gesperrt="<?= $gesperrt ? 'JA' : 'NEIN' ?>"
-                            data-rollen="<?= $h(json_encode(array_map('mb_strtolower', $r['rollen_liste']))) ?>"
+                            data-rollen="<?= $h(json_encode($r['rollen_liste'])) ?>"
                             data-eigen="<?= $istEigen ? '1' : '0' ?>">
                         <i class="bi bi-pencil"></i>
                     </button>
@@ -147,17 +149,16 @@ foreach ($gesperrtWerte as $wert => $label) {
     $gesperrtOptionen .= '<option value="' . $h($wert) . '">' . $h($label) . '</option>';
 }
 
-$rollenBoxen = '';
-$i = 0;
-foreach ($bekannteRollen as $schluessel => $anzeige) {
-    $id = 'regRolle' . $i++;
-    $rollenBoxen .= '
-        <div class="form-check form-check-inline">
-            <input class="form-check-input" type="checkbox" name="rollen[]" id="' . $id . '"
-                   value="' . $h($anzeige) . '" data-rolle="' . $h($schluessel) . '">
-            <label class="form-check-label" for="' . $id . '">' . $h($anzeige) . '</label>
-        </div>';
-}
+$rollenAuswahl = View::komponente('tag-auswahl', [
+    'id'          => 'regRollen',
+    'name'        => 'rollen[]',
+    'label'       => 'Rollen',
+    'vorschlaege' => $rollenVorschlaege,
+    'maxlength'   => $rolleMax,
+    'muster'      => $rolleMuster,
+    'platzhalter' => 'Rolle oder Endpunkt suchen …',
+    'hinweis'     => 'Mindestens eine Rolle ist Pflicht – ohne Rolle hätte der Zugang uneingeschränkten Zugriff.',
+]);
 
 echo View::komponente('modal', [
     'id'          => 'regBearbeiten',
@@ -186,16 +187,8 @@ echo View::komponente('modal', [
                     ' . $gesperrtOptionen . '
                 </select>
             </div>
-            <div class="mb-2">
-                <span class="form-label d-block">Rollen</span>
-                ' . $rollenBoxen . '
-            </div>
             <div class="mb-0">
-                <label class="form-label" for="regRollenWeitere">' . $h($felder['rollen_weitere']['bezeichnung']) . '</label>
-                <input type="text" class="form-control" id="regRollenWeitere" name="rollen_weitere"
-                       placeholder="z.B. /adressen/* oder dispo – mehrere mit Komma"'
-                    . Pruefung::htmlAttribute($felder, 'rollen_weitere') . '>
-                <div class="form-text">Mindestens eine Rolle ist Pflicht &ndash; ohne Rolle hätte der Zugang uneingeschränkten Zugriff.</div>
+                ' . $rollenAuswahl . '
             </div>
         </fieldset>
         <p class="small text-muted mt-3 mb-0 d-none" data-feld="eigen-hinweis">
@@ -245,12 +238,9 @@ document.querySelectorAll('#regBearbeiten, #regLoeschen').forEach(function (moda
             }
         });
 
-        modal.querySelectorAll('[data-rolle]').forEach(function (box) {
-            box.checked = rollen.indexOf(box.dataset.rolle) !== -1;
-        });
-        var weitere = modal.querySelector('[name=rollen_weitere]');
-        if (weitere) {
-            weitere.value = '';
+        var rollenAuswahl = modal.querySelector('#regRollen');
+        if (rollenAuswahl) {
+            rollenAuswahl.setzeWerte(rollen);
         }
 
         // Ein deaktiviertes fieldset wird nicht mitgesendet -- beim eigenen
