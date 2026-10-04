@@ -13,7 +13,6 @@ $eingeloggt = !empty($_COOKIE['jwt_token']);
 $benutzer   = $_COOKIE['jwt_user'] ?? '';
 
 $registrierLink = Portal::registrierung($portal ?? Portal::DEFAULT);
-$demoLink       = Portal::praefix($portal ?? Portal::DEFAULT) . '/demo';
 ?>
 <div class="px-3 py-5 py-lg-6">
     <div class="container">
@@ -41,25 +40,6 @@ $demoLink       = Portal::praefix($portal ?? Portal::DEFAULT) . '/demo';
                         <i class="bi bi-box-arrow-right me-1"></i>Abmelden
                     </a>
 
-                    <?php // Testseite -- nur fuer Angemeldete sichtbar, damit sie
-                          // externen Besuchern nicht angeboten wird. Faellt mit der
-                          // Route /kunde/demo weg. ?>
-                    <h2 class="h6 fw-bold text-uppercase text-muted mt-5 mb-3" style="letter-spacing:.06em;">
-                        Testseite
-                    </h2>
-                    <div class="row g-3 text-start justify-content-center">
-                        <div class="col-12 col-md-6">
-                            <a href="<?= APP_BASE . $demoLink ?>" class="text-decoration-none d-block p-3 h-100 rounded"
-                               style="background:var(--surface-muted);border:1px solid var(--border-color);color:inherit;">
-                                <i class="bi bi-emoji-smile mb-2" style="font-size:1.6rem;color:var(--primary-color-dark);"></i>
-                                <h3 class="h6 fw-bold mb-1" style="color:var(--text-color);">Hallo Welt</h3>
-                                <p class="small text-muted mb-0">
-                                    Gesch&uuml;tzte Testseite &ndash; zeigt Portal und Token-Kontext.
-                                </p>
-                            </a>
-                        </div>
-                    </div>
-
                 <?php else: ?>
 
                     <p class="lead text-muted mb-4">
@@ -78,42 +58,6 @@ $demoLink       = Portal::praefix($portal ?? Portal::DEFAULT) . '/demo';
                     </div>
 
                 <?php endif; ?>
-
-                <h2 class="h6 fw-bold text-uppercase text-muted mt-5 mb-3" style="letter-spacing:.06em;">
-                    So geht es weiter
-                </h2>
-                <div class="row g-3 text-start">
-                    <div class="col-12 col-md-4">
-                        <div class="p-3 h-100 rounded"
-                             style="background:var(--surface-muted);border:1px solid var(--border-color);">
-                            <i class="bi bi-1-circle mb-2" style="font-size:1.6rem;color:var(--primary-color-dark);"></i>
-                            <h3 class="h6 fw-bold mb-1" style="color:var(--text-color);">Formular ausf&uuml;llen</h3>
-                            <p class="small text-muted mb-0">
-                                Firmen- und Kontaktdaten eingeben und absenden.
-                            </p>
-                        </div>
-                    </div>
-                    <div class="col-12 col-md-4">
-                        <div class="p-3 h-100 rounded"
-                             style="background:var(--surface-muted);border:1px solid var(--border-color);">
-                            <i class="bi bi-2-circle mb-2" style="font-size:1.6rem;color:var(--primary-color-dark);"></i>
-                            <h3 class="h6 fw-bold mb-1" style="color:var(--text-color);">Pr&uuml;fung</h3>
-                            <p class="small text-muted mb-0">
-                                Wir pr&uuml;fen Ihre Registrierung und legen Ihr Konto an.
-                            </p>
-                        </div>
-                    </div>
-                    <div class="col-12 col-md-4">
-                        <div class="p-3 h-100 rounded"
-                             style="background:var(--surface-muted);border:1px solid var(--border-color);">
-                            <i class="bi bi-3-circle mb-2" style="font-size:1.6rem;color:var(--primary-color-dark);"></i>
-                            <h3 class="h6 fw-bold mb-1" style="color:var(--text-color);">R&uuml;ckmeldung</h3>
-                            <p class="small text-muted mb-0">
-                                Sie erhalten eine Nachricht, sobald Ihr Zugang bereitsteht.
-                            </p>
-                        </div>
-                    </div>
-                </div>
 
             </div>
         </div>

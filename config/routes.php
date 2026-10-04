@@ -45,12 +45,6 @@ $router->add('/kunde/registrieren',                  'Standard\Controllers\Regis
 $router->add('/kunde/registrieren/absenden',         'Standard\Controllers\RegistrierungController', 'speichern',       ['auth' => false]);
 $router->add('/kunde/registrieren/username-pruefen', 'Standard\Controllers\RegistrierungController', 'usernamePruefen', ['auth' => false]);
 
-// Testseite "Hallo Welt" -- geschuetzt (Default auth: true), keine Fachfunktion.
-// Dient zum Durchklicken des Kundenportals und uebt die Portalgrenze aus:
-// eine geschuetzte Route, die NICHT zum Mitarbeiterportal gehoert.
-// Zum Entfernen genuegt diese Zeile plus DemoController und View.
-$router->add('/kunde/demo', 'Standard\Controllers\DemoController', 'index');
-
 // ---------------------------------------------------------------------------
 // Mitarbeiterportal -- Einstieg per URL, Login laeuft ueber das Modal
 // ---------------------------------------------------------------------------
