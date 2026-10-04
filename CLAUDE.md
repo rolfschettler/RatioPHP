@@ -369,10 +369,11 @@ kopieren, sondern eine weitere Variante in `PORTALE` ergaenzen.
 | Mitarbeiterportal | `/mitarbeiter/registrieren` | `mitarbeiter` | nur mit Loginname + Passwort aus USERS | USERS-Loginname | keine | das USERS-Passwort, keine Wiederholung |
 | Fahrerportal | `/fahrer/registrieren` | `fahrer` | nur wer mit Kuerzel + Vor- und Nachname im PERSONALSTAMM steht | Personalstamm-Kuerzel (`zeichen`), immer GROSS | keine | eigenes Portalpasswort mit Wiederholung |
 
-Das Mitarbeiterformular fragt genau zwei Felder ab: Loginname und Passwort. Keine
-E-Mail-Adresse -- REGISTRIERUNG hat kein E-Mail-Feld, und ohne Adresse gibt es auch
-kein `ADRESSEN.email`, in dem sie landen koennte. Grundsatz: **kein Formular fragt
-Daten ab, die nirgends gespeichert werden.**
+Das Mitarbeiterformular fragt Loginname und Passwort ab, dazu freiwillig eine
+E-Mail-Adresse. Diese landet -- wie im Fahrerportal -- in `REGISTRIERUNG.email`
+(60 Zeichen); `insertregistrierunglocal` nimmt `email` bei jedem `typ` fuer
+REGISTRIERUNG an, eine Adresse entsteht dadurch nicht. Grundsatz: **kein Formular
+fragt Daten ab, die nirgends gespeichert werden.**
 
 Die Schalter in `PORTALE` sind bewusst einzeln und nicht an `adressdaten`
 gekoppelt -- das Fahrerportal braucht Namensfelder OHNE Adresse:
@@ -383,6 +384,7 @@ gekoppelt -- das Fahrerportal braucht Namensfelder OHNE Adresse:
 | `adressdaten` -- Anrede, Anschrift, Telefon, Kundennummer | ja | nein | nein |
 | `namensfelder` -- `name1`, `name2` | ja | nein | **ja** |
 | `eigenes_passwort` -- Passwort + Wiederholung | ja | nein | ja |
+| `email_optional` -- freiwillige E-Mail nach `REGISTRIERUNG.email` | nein (Benutzername IST die E-Mail) | ja | ja |
 | `live_pruefung` -- Verfuegbarkeit waehrend der Eingabe | ja | nein | nein |
 | `username_aus` | `email` | `loginname` | `zeichen` |
 
@@ -407,6 +409,16 @@ Bei `mitarbeiter` und `fahrer` bleibt `kennziffer` `NULL` und die Antwort lautet
 `"kennziffer":null`, `"adresse":"keine"`. Die Adressfelder werden dort verworfen --
 **mit Ausnahme von `name1`/`name2` bei `fahrer`**: die sind Suchkriterium, kein
 Adressinhalt, und muessen mitgesendet werden.
+
+**Sperre bis zur Freischaltung:** Bei `typ='mitarbeiter'` und `typ='fahrer'`
+legt der Endpunkt den Satz mit `REGISTRIERUNG.gesperrt='JA'` an, `/login` lehnt
+ihn dann ab ("Dieses Benutzerkonto ist gesperrt."). Freigeschaltet wird in der
+Registrierungsverwaltung (Status „Aktiv“). Der Wert wird im Endpunkt fest
+gesetzt und steht bewusst NICHT in dessen Feld-Whitelist -- PHP sendet kein
+`gesperrt` und koennte es auch nicht. `typ='kunde'` bleibt offen. Die
+Erfolgsmeldung beider Portale weist auf die Freischaltung hin
+(`PORTALE[..]['erfolg']`). Delphi-Aenderung vom 2026-10-04 -- wirksam erst
+nach Kompilieren und Deployment des RATIOservers.
 
 **Jeder Registrierungsvorgang setzt `typ` passend zum Portal** -- ohne den Wert
 lehnt der Endpunkt den Aufruf komplett ab.
@@ -449,8 +461,9 @@ Loginname und Passwort existiert. `USERS.passwort` liegt codiert vor und wird mi
 Die geprueften USERS-Zugangsdaten sind gleichzeitig die Portal-Zugangsdaten: der
 Loginname wird als `REGISTRIERUNG.username` gespeichert, das Passwort gehasht
 (`password_hash`) als `REGISTRIERUNG.pwd2`. Deshalb hat das Mitarbeiterformular
-KEIN eigenes Passwortfeld, keine Wiederholung und keine E-Mail-Adresse -- der
+KEIN eigenes Passwortfeld und keine Wiederholung -- der
 Mitarbeiter meldet sich am Portal mit genau denselben Daten an, die er ohnehin kennt.
+Die E-Mail-Adresse ist freiwillig und landet in `REGISTRIERUNG.email`.
 
 Gegengeprueft: `/login` verifiziert `REGISTRIERUNG.pwd2` per `password_verify` und
 akzeptiert einen von PHP geschriebenen `password_hash` -- die Kette funktioniert.

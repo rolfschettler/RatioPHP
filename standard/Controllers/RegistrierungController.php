@@ -94,9 +94,8 @@
  *   Das gepruefte USERS-Passwort ist gleichzeitig das Portalpasswort: es wird
  *   gehasht in REGISTRIERUNG.pwd2 abgelegt. Als REGISTRIERUNG.username dient
  *   der USERS-Loginname. Das Mitarbeiterformular fragt deshalb NUR Loginname
- *   und Passwort ab -- kein eigenes Portalpasswort, keine Wiederholung und
- *   keine E-Mail-Adresse: REGISTRIERUNG hat kein E-Mail-Feld, und ohne Adresse
- *   gibt es auch kein ADRESSEN.email, in dem sie landen koennte.
+ *   und Passwort ab (dazu freiwillig eine E-Mail-Adresse fuer
+ *   REGISTRIERUNG.email) -- kein eigenes Portalpasswort, keine Wiederholung.
  *   Der Mitarbeiter meldet sich am Portal also mit denselben Zugangsdaten an,
  *   die er ohnehin kennt.
  *
@@ -181,6 +180,7 @@ class RegistrierungController extends BaseController
         'ort'            => ['bezeichnung' => 'Ort', 'max_zeichen' => 30],
         'telefon1'       => ['bezeichnung' => 'Telefon', 'max_zeichen' => 25],
         'username'       => ['bezeichnung' => 'E-Mail-Adresse', 'pflicht' => true, 'email' => true, 'max_zeichen' => 60],
+        'email'          => ['bezeichnung' => 'E-Mail-Adresse', 'email' => true, 'max_zeichen' => 60],
         'password'       => ['bezeichnung' => 'Passwort', 'pflicht' => true, 'min_bytes' => 6, 'max_bytes' => 72, 'geheim' => true],
         'password_wdh'   => ['bezeichnung' => 'Passwort wiederholen', 'pflicht' => true, 'gleich' => 'password', 'geheim' => true],
     ];
@@ -194,6 +194,7 @@ class RegistrierungController extends BaseController
         'adressdaten'      => ['kennziffer', 'anrede', 'strasse', 'plz', 'ort', 'telefon1'],
         'namensfelder'     => ['name1', 'name2'],
         'eigenes_passwort' => ['password', 'password_wdh'],
+        'email_optional'   => ['email'],
     ];
 
     /**
@@ -221,6 +222,9 @@ class RegistrierungController extends BaseController
      *   eigenes_passwort Portalpasswort mit Wiederholung abfragen. Im
      *                    Mitarbeiterportal nicht: dort IST das gepruefte
      *                    USERS-Passwort das Portalpasswort.
+     *   email_optional   Zusaetzliches, freiwilliges E-Mail-Feld. Landet in
+     *                    REGISTRIERUNG.email (60). Nicht beim Kunden: dort IST
+     *                    der Benutzername die E-Mail-Adresse.
      *   live_pruefung    Verfuegbarkeit des Benutzernamens schon waehrend der
      *                    Eingabe per fetch pruefen.
      *   username_aus     Woraus REGISTRIERUNG.username entsteht:
@@ -228,6 +232,8 @@ class RegistrierungController extends BaseController
      *                    'loginname' -- USERS-Loginname (Mitarbeiter)
      *                    'zeichen'   -- Personalstamm-Kuerzel (Fahrer),
      *                                   wird grossgeschrieben gespeichert
+     *   erfolg           Erfolgsmeldung -- bei mitarbeiter/fahrer mit Hinweis auf
+     *                    die Freischaltung (der Endpunkt legt sie gesperrt an)
      *   felder           Abweichungen von FELDER fuer diese Variante
      *
      * Welche Felder abgefragt und geprueft werden, folgt aus den Schaltern
@@ -248,9 +254,11 @@ class RegistrierungController extends BaseController
             'adressdaten'      => true,
             'namensfelder'     => true,
             'eigenes_passwort' => true,
+            'email_optional'   => false,
             'live_pruefung'    => true,
             'username_aus'     => 'email',
             'dublette'         => 'Diese E-Mail-Adresse ist bereits registriert.',
+            'erfolg'           => 'Registrierung erfolgreich.',
         ],
         'mitarbeiter' => [
             'portal'           => 'mitarbeiter',
@@ -262,13 +270,14 @@ class RegistrierungController extends BaseController
             'adressdaten'      => false,
             'namensfelder'     => false,
             'eigenes_passwort' => false,
+            'email_optional'   => true,
             'live_pruefung'    => false,
             // Der Mitarbeiter meldet sich am Portal mit seinem USERS-Loginnamen
-            // an -- eine E-Mail-Adresse wird nicht abgefragt: REGISTRIERUNG hat
-            // kein E-Mail-Feld, und ohne Adresse gibt es auch kein
-            // ADRESSEN.email, in dem sie landen koennte.
+            // an. Eine E-Mail-Adresse kann er freiwillig angeben -- sie landet
+            // in REGISTRIERUNG.email, eine Adresse entsteht nicht.
             'username_aus'     => 'loginname',
             'dublette'         => 'Für diesen Loginnamen ist bereits ein Portalzugang angelegt.',
+            'erfolg'           => self::ERFOLG_FREISCHALTUNG,
         ],
         'fahrer' => [
             'portal'           => 'fahrer',
@@ -282,11 +291,13 @@ class RegistrierungController extends BaseController
             'adressdaten'      => false,
             'namensfelder'     => true,
             'eigenes_passwort' => true,
+            'email_optional'   => true,
             // Bewusst aus: eine Live-Pruefung wuerde oeffentlich verraten,
             // welche Fahrerkuerzel bereits einen Zugang haben.
             'live_pruefung'    => false,
             'username_aus'     => 'zeichen',
             'dublette'         => 'Für dieses Fahrerkürzel ist bereits ein Portalzugang angelegt.',
+            'erfolg'           => self::ERFOLG_FREISCHALTUNG,
             // Kuerzel aus PERSONALSTAMM.zeichen (ftstring 15), immer gross --
             // der Endpunkt normalisiert ebenso, der Anmeldevergleich laeuft
             // per UPPER(). name2 ist hier kein Firmenname.
@@ -296,6 +307,14 @@ class RegistrierungController extends BaseController
             ],
         ],
     ];
+
+    /**
+     * Erfolgsmeldung fuer typ=mitarbeiter und typ=fahrer: insertregistrierunglocal
+     * legt beide mit REGISTRIERUNG.gesperrt='JA' an, freigeschaltet wird in der
+     * Registrierungsverwaltung. Ohne diesen Hinweis wirkt die Sperrmeldung
+     * beim ersten Login wie ein Fehler.
+     */
+    private const ERFOLG_FREISCHALTUNG = 'Registrierung erfolgreich. Ihr Zugang wird nach der Freischaltung aktiv.';
 
     /**
      * Einheitliche Meldung fuer jeden Fehlschlag der USERS-Pruefung.
@@ -375,7 +394,7 @@ class RegistrierungController extends BaseController
         // Honeypot befuellt -- Bot erkannt. Kein Insert, aber Erfolg
         // vortaeuschen (verraet dem Bot nicht, woran es lag).
         if ($honeypot !== '') {
-            $this->flashSuccess('Registrierung erfolgreich.');
+            $this->flashSuccess($konfig['erfolg']);
             $this->redirect(Portal::start($konfig['portal']));
             return;
         }
@@ -468,6 +487,13 @@ class RegistrierungController extends BaseController
             ];
         }
 
+        // Freiwillige E-Mail-Adresse (Mitarbeiter, Fahrer) -- nur mitsenden,
+        // wenn angegeben. Der Endpunkt schreibt sie bei jedem typ in
+        // REGISTRIERUNG.email.
+        if ($konfig['email_optional'] && $werte['email'] !== '') {
+            $daten['email'] = $werte['email'];
+        }
+
         // Uebrige Adressfelder nur bei typ=kunde -- bei jedem anderen typ legt
         // der Endpunkt keine Adresse an und ignoriert sie ohnehin.
         // email wird mit dem Benutzernamen befuellt -- der Benutzername IST
@@ -519,7 +545,7 @@ class RegistrierungController extends BaseController
         // Kein automatisches Oeffnen des Anmelden-Modals, kein jwt_token-Cookie
         // -- die REGISTRIERUNG-Anmeldung ist ein eigenes System, unabhaengig
         // vom JWT-Login dieser App. Nur die Erfolgsmeldung anzeigen.
-        $this->flashSuccess('Registrierung erfolgreich.');
+        $this->flashSuccess($konfig['erfolg']);
         $this->redirect(Portal::start($konfig['portal']));
     }
 
@@ -742,6 +768,7 @@ class RegistrierungController extends BaseController
             'namensfelder'         => $konfig['namensfelder'],
             'eigenes_passwort'     => $konfig['eigenes_passwort'],
             'live_pruefung'        => $konfig['live_pruefung'],
+            'email_optional'       => $konfig['email_optional'],
             'username_aus'         => $konfig['username_aus'],
             // Beschriftung, Grenzen und Pflichtfelder -- dieselben
             // Definitionen, nach denen der Controller prueft

@@ -21,6 +21,8 @@
 //                                        USERS-Block (Mitarbeiter)
 //                         'zeichen'   -> Fahrerkuerzel (Fahrer)
 //   $live_pruefung        true -> Verfuegbarkeit waehrend der Eingabe pruefen.
+//   $email_optional       true -> freiwillige E-Mail-Adresse (Mitarbeiter,
+//                         Fahrer) -- landet in REGISTRIERUNG.email.
 //
 //   $felder               Feld-Definitionen (RegistrierungController::FELDER)
 //                         -- Beschriftung, Pflicht und Grenzen JEDES Feldes.
@@ -52,6 +54,7 @@ $mitZeichen      = ($usernameAus === 'zeichen');
 // Passwort abgefragt wird. Im Mitarbeiterportal entfaellt er -- dort stehen
 // beide Angaben schon im USERS-Block.
 $mitZugangsblock = ($mitEmail || $mitZeichen || $mitPasswort);
+$mitKontakt      = !empty($email_optional);
 
 /** Gibt einen Eingabewert HTML-sicher zurueck. */
 $wert = static function (string $feld) use ($eingaben): string {
@@ -121,7 +124,7 @@ $attr = static fn(string $feld): string => Pruefung::htmlAttribute($felder, $fel
                             </div>
                         </div>
                     </div>
-                    <?php if ($mitAdresse || $mitNamen || $mitZugangsblock): ?>
+                    <?php if ($mitAdresse || $mitNamen || $mitZugangsblock || $mitKontakt): ?>
                     <hr class="my-4" style="border-color:var(--border-color);">
                     <?php endif; ?>
                     <?php endif; ?>
@@ -272,6 +275,26 @@ $attr = static fn(string $feld): string => Pruefung::htmlAttribute($felder, $fel
                                    <?= $attr('password_wdh') ?> autocomplete="new-password">
                         </div>
                         <?php endif; ?>
+                    </div>
+                    <?php endif; ?>
+
+                    <?php if ($mitKontakt): ?>
+                    <!-- ---------------------------------------------------- -->
+                    <!-- Freiwillige Kontaktangabe                            -->
+                    <!-- ---------------------------------------------------- -->
+                    <?php if ($mitZugangsblock): ?>
+                    <hr class="my-4" style="border-color:var(--border-color);">
+                    <?php endif; ?>
+                    <h2 class="h6 fw-bold mb-3" style="color:var(--primary-color-dark);">
+                        <i class="bi bi-envelope me-1"></i>Kontakt
+                    </h2>
+                    <div class="row g-3">
+                        <div class="col-12">
+                            <?= $label('email', 'regEmail') ?>
+                            <input type="email" class="form-control" id="regEmail" name="email"
+                                   value="<?= $wert('email') ?>"<?= $attr('email') ?>
+                                   autocomplete="email" placeholder="optional">
+                        </div>
                     </div>
                     <?php endif; ?>
 
