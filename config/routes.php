@@ -45,6 +45,12 @@ $router->add('/kunde/registrieren',                  'Standard\Controllers\Regis
 $router->add('/kunde/registrieren/absenden',         'Standard\Controllers\RegistrierungController', 'speichern',       ['auth' => false]);
 $router->add('/kunde/registrieren/username-pruefen', 'Standard\Controllers\RegistrierungController', 'usernamePruefen', ['auth' => false]);
 
+// Eigene Adresse bearbeiten -- geschuetzt (Default auth: true). Die Adresse
+// ist die aus REGISTRIERUNG.kennziffer des Anmelders (Kennziffer aus dem
+// Token, nie aus dem Request); geschrieben wird ueber /adressen/updateadressen.
+$router->add('/kunde/adresse',           'Standard\Controllers\AdresseController', 'index');
+$router->add('/kunde/adresse/speichern', 'Standard\Controllers\AdresseController', 'speichern');
+
 // ---------------------------------------------------------------------------
 // Mitarbeiterportal -- Einstieg per URL, Login laeuft ueber das Modal
 // ---------------------------------------------------------------------------

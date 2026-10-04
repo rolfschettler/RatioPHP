@@ -154,6 +154,9 @@ class RegistrierungController extends BaseController
      * samt Fehlertexten. Abweichungen einer Portalvariante stehen in
      * PORTALE[..]['felder'].
      *
+     * public, weil der AdresseController (eigene Adresse bearbeiten) die
+     * Adressfelder von hier uebernimmt -- dieselben Spalten, dieselben Grenzen.
+     *
      * Grenzen aus den Zielspalten (CLAUDE.md, Abschnitt Feldlaengen):
      *   loginname, login_password  USERS (ftstring 20) -- laenger kann ein
      *                              hinterlegter Wert gar nicht sein
@@ -168,7 +171,7 @@ class RegistrierungController extends BaseController
      *                              lieber ablehnen als still abschneiden. Die
      *                              Zielspalte pwd2 (255) nimmt nur den Hash auf.
      */
-    private const FELDER = [
+    public const FELDER = [
         'loginname'      => ['bezeichnung' => 'Loginname', 'pflicht' => true, 'max_zeichen' => 20],
         'login_password' => ['bezeichnung' => 'Passwort', 'pflicht' => true, 'max_zeichen' => 20, 'geheim' => true],
         'kennziffer'     => ['bezeichnung' => 'Kundennummer', 'ganzzahl' => [1, 2147483647], 'max_zeichen' => 10],

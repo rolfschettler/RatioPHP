@@ -29,9 +29,9 @@ namespace Core;
 
 class Auth
 {
-    /** Ergebnis wird pro Request nur einmal ermittelt. */
+    /** role-Claim des Cookie-Tokens -- pro Request nur einmal dekodiert. */
     private static bool $gelesen = false;
-    private static ?string $portal = null;
+    private static ?array $rolle = null;
 
     /**
      * Portal des angemeldeten Benutzers.
@@ -42,12 +42,28 @@ class Auth
      */
     public static function portal(): ?string
     {
-        if (!self::$gelesen) {
-            self::$gelesen = true;
-            self::$portal  = self::portalAusToken((string)($_COOKIE['jwt_token'] ?? ''));
-        }
+        $rolle = self::rolleAusCookie();
 
-        return self::$portal;
+        return $rolle === null ? null : Portal::ausTyp((string)($rolle['typ'] ?? ''));
+    }
+
+    /**
+     * Kennziffer (ADRESSEN.kennziffer) des angemeldeten Benutzers -- der Wert
+     * aus REGISTRIERUNG.kennziffer, wie er beim Login im role-Claim stand.
+     *
+     * Einzige zulaessige Quelle, wenn ein Controller die EIGENE Adresse
+     * liest oder schreibt: eine Kennziffer aus dem Request waere frei
+     * waehlbar. Die Signatur prueft RATIOserver beim naechsten api_post() --
+     * ein selbst gebautes Cookie bekommt dort keine Daten.
+     *
+     * @return int|null null ohne Token, ohne Kennziffer (typ mitarbeiter und
+     *                  fahrer) oder bei einem unbrauchbaren Wert
+     */
+    public static function kennziffer(): ?int
+    {
+        $wert = (string)(self::rolleAusCookie()['kennziffer'] ?? '');
+
+        return ctype_digit($wert) && (int)$wert > 0 ? (int)$wert : null;
     }
 
     /**
@@ -60,6 +76,30 @@ class Auth
      * Jeder Schritt bricht bei Unstimmigkeit mit null ab -- fail-closed.
      */
     public static function portalAusToken(string $token): ?string
+    {
+        $rolle = self::rolleAusToken($token);
+
+        return $rolle === null ? null : Portal::ausTyp((string)($rolle['typ'] ?? ''));
+    }
+
+    /** role-Claim des Cookie-Tokens, pro Request nur einmal dekodiert. */
+    private static function rolleAusCookie(): ?array
+    {
+        if (!self::$gelesen) {
+            self::$gelesen = true;
+            self::$rolle   = self::rolleAusToken((string)($_COOKIE['jwt_token'] ?? ''));
+        }
+
+        return self::$rolle;
+    }
+
+    /**
+     * role-Claim eines Tokens -- die REGISTRIERUNG-Zeile des Anmelders
+     * (ohne pwd2).
+     *
+     * Jeder Schritt bricht bei Unstimmigkeit mit null ab -- fail-closed.
+     */
+    private static function rolleAusToken(string $token): ?array
     {
         if ($token === '') {
             return null;
@@ -88,11 +128,8 @@ class Auth
         if (is_string($role)) {
             $role = json_decode($role, true);
         }
-        if (!is_array($role)) {
-            return null;
-        }
 
-        return Portal::ausTyp((string)($role['typ'] ?? ''));
+        return is_array($role) ? $role : null;
     }
 
     /**

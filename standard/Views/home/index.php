@@ -13,6 +13,7 @@ $eingeloggt = !empty($_COOKIE['jwt_token']);
 $benutzer   = $_COOKIE['jwt_user'] ?? '';
 
 $registrierLink = Portal::registrierung($portal ?? Portal::DEFAULT);
+$adresseLink    = Portal::praefix($portal ?? Portal::DEFAULT) . '/adresse';
 ?>
 <div class="px-3 py-5 py-lg-6">
     <div class="container">
@@ -39,6 +40,19 @@ $registrierLink = Portal::registrierung($portal ?? Portal::DEFAULT);
                     <a href="<?= APP_BASE ?>/logout?portal=kunde" class="btn btn-lg fw-semibold btn-app-primary">
                         <i class="bi bi-box-arrow-right me-1"></i>Abmelden
                     </a>
+
+                    <div class="row g-3 text-start justify-content-center mt-5">
+                        <div class="col-12 col-md-6">
+                            <a href="<?= APP_BASE . $adresseLink ?>" class="text-decoration-none d-block p-3 h-100 rounded"
+                               style="background:var(--surface-muted);border:1px solid var(--border-color);color:inherit;">
+                                <i class="bi bi-house-gear mb-2" style="font-size:1.6rem;color:var(--primary-color-dark);"></i>
+                                <h3 class="h6 fw-bold mb-1" style="color:var(--text-color);">Meine Adresse</h3>
+                                <p class="small text-muted mb-0">
+                                    Name und Anschrift pr&uuml;fen und &auml;ndern.
+                                </p>
+                            </a>
+                        </div>
+                    </div>
 
                 <?php else: ?>
 
