@@ -1,6 +1,6 @@
 <?php
 // standard/Views/registrierung/index.php
-// Registrierungsformular fuer BEIDE Portale -- legt per
+// Registrierungsformular fuer ALLE Portale -- legt per
 // /registrierung/insertregistrierunglocal eine Adresse (ADRESSEN) und die
 // Registrierung (REGISTRIERUNG) an.
 // Reiner Content-HTML -- kein DOCTYPE, kein Layout-Include.
@@ -11,15 +11,16 @@
 //                         Das dort eingegebene Mitarbeiterpasswort ist
 //                         gleichzeitig das Portalpasswort -- kein eigenes
 //                         Passwortfeld, keine Wiederholung.
-//   $adressdaten          true -> Anrede, Anschrift, Telefon, Kundennummer.
+//   $personalstamm        true -> Kurzzeichen des Personalstamms abfragen
+//                         (Fahrer) -- Abgleich mit name1/name2 im Endpunkt.
+//   $adressdaten         true -> Anrede, Anschrift, Telefon, Kundennummer.
 //                         Nur bei typ=kunde; bei jedem anderen typ legt der
 //                         Endpunkt keine Adresse an und ignoriert die Felder.
 //   $namensfelder         true -> Vorname und Nachname abfragen.
 //   $eigenes_passwort     true -> Passwort + Wiederholung abfragen.
 //   $username_aus         'email'     -> E-Mail-Feld (Kunde)
 //                         'eingabe'   -> frei gewaehlter Benutzername
-//                                        (Mitarbeiter)
-//                         'zeichen'   -> Fahrerkuerzel (Fahrer)
+//                                        (Mitarbeiter, Fahrer)
 //   $live_pruefung        true -> Verfuegbarkeit waehrend der Eingabe pruefen.
 //   $email_optional       true -> freiwillige E-Mail-Adresse (Mitarbeiter,
 //                         Fahrer) -- landet in REGISTRIERUNG.email.
@@ -43,18 +44,18 @@ $aktion          = $formular_action ?? '/kunde/registrieren/absenden';
 $zurueckLink     = $zurueck_link    ?? '/';
 $zurueckText     = $zurueck_text    ?? 'Zurück zur Startseite';
 $userspruefung   = !empty($mitarbeiter_pruefung);
-$mitAdresse      = $adressdaten     ?? true;
+$mitPersonal     = !empty($personalstamm);
+$mitAdresse     = $adressdaten     ?? true;
 $mitNamen        = $namensfelder    ?? true;
 $mitPasswort     = $eigenes_passwort ?? true;
 $livePruefung    = $live_pruefung   ?? true;
 $usernameAus     = $username_aus    ?? 'email';
 $mitEmail        = ($usernameAus === 'email');
-$mitZeichen      = ($usernameAus === 'zeichen');
 $mitBenutzername = ($usernameAus === 'eingabe');
 // Zugangsdaten-Block: ueberall wo ein eigenes Loginfeld oder ein eigenes
 // Passwort abgefragt wird. Im Mitarbeiterportal steht dort nur der
 // Benutzername -- das Passwort kommt aus dem USERS-Block.
-$mitZugangsblock = ($mitEmail || $mitZeichen || $mitBenutzername || $mitPasswort);
+$mitZugangsblock = ($mitEmail || $mitBenutzername || $mitPasswort);
 $mitKontakt      = !empty($email_optional);
 
 /** Gibt einen Eingabewert HTML-sicher zurueck. */
@@ -176,26 +177,37 @@ $attr = static fn(string $feld): string => Pruefung::htmlAttribute($felder, $fel
                         </div>
                         <?php endif; ?>
 
+                        <?php if ($mitPersonal): ?>
+                        <div class="col-12">
+                            <?= $label('personalzeichen', 'regPersonalzeichen') ?>
+                            <input type="text" class="form-control text-uppercase" id="regPersonalzeichen"
+                                   name="personalzeichen" value="<?= $wert('personalzeichen') ?>"<?= $attr('personalzeichen') ?>
+                                   autocomplete="off" autocapitalize="characters" spellcheck="false" autofocus>
+                        </div>
+                        <?php endif; ?>
+
                         <?php if ($mitNamen): ?>
                         <div class="col-12 <?= $mitAdresse ? 'col-sm-4' : 'col-sm-6' ?>">
                             <?= $label('name1', 'regName1') ?>
                             <input type="text" class="form-control" id="regName1" name="name1"
                                    value="<?= $wert('name1') ?>"<?= $attr('name1') ?>
-                                   <?= $userspruefung ? '' : 'autofocus' ?>>
+                                   <?= ($userspruefung || $mitPersonal) ? '' : 'autofocus' ?>>
                         </div>
                         <div class="col-12 <?= $mitAdresse ? 'col-sm-4' : 'col-sm-6' ?>">
                             <?= $label('name2', 'regName2') ?>
                             <input type="text" class="form-control" id="regName2" name="name2"
                                    value="<?= $wert('name2') ?>"<?= $attr('name2') ?>>
                         </div>
-                        <?php if ($mitZeichen): ?>
+                        <?php endif; ?>
+
+                        <?php if ($mitPersonal): ?>
                         <div class="col-12">
                             <div class="form-text">
-                                Vor- und Nachname m&uuml;ssen mit Ihren im Personalstamm hinterlegten
-                                Daten &uuml;bereinstimmen &ndash; sonst k&ouml;nnen wir Sie nicht zuordnen.
+                                Kurzzeichen, Vor- und Nachname m&uuml;ssen mit Ihren im Personalstamm
+                                hinterlegten Daten &uuml;bereinstimmen &ndash; sonst k&ouml;nnen wir Sie nicht
+                                zuordnen. Ihr Zugang muss nach der Registrierung erst noch freigeschaltet werden.
                             </div>
                         </div>
-                        <?php endif; ?>
                         <?php endif; ?>
 
                         <?php if ($mitAdresse): ?>
@@ -248,18 +260,6 @@ $attr = static fn(string $feld): string => Pruefung::htmlAttribute($felder, $fel
                             <!-- Ergebnis der Verfuegbarkeitspruefung (per fetch gefuellt) -->
                             <div id="regUsernameHinweis" class="small mt-1" role="status" aria-live="polite"></div>
                         </div>
-                        <?php elseif ($mitZeichen): ?>
-                        <div class="col-12">
-                            <?= $label('username', 'regUsername') ?>
-                            <input type="text" class="form-control text-uppercase" id="regUsername" name="username"
-                                   value="<?= $wert('username') ?>"<?= $attr('username') ?>
-                                   autocomplete="username" autocapitalize="characters" spellcheck="false">
-                            <div class="form-text">
-                                Ihr K&uuml;rzel aus dem Personalstamm &ndash; damit melden Sie sich
-                                k&uuml;nftig am Portal an. Gro&szlig;- und Kleinschreibung spielt
-                                keine Rolle.
-                            </div>
-                        </div>
                         <?php elseif ($mitBenutzername): ?>
                         <div class="col-12">
                             <?= $label('username', 'regUsername') ?>
@@ -267,7 +267,8 @@ $attr = static fn(string $feld): string => Pruefung::htmlAttribute($felder, $fel
                                    value="<?= $wert('username') ?>"<?= $attr('username') ?>
                                    autocomplete="username" spellcheck="false">
                             <div class="form-text">
-                                Mit diesem Benutzernamen und Ihrem Mitarbeiter-Passwort melden Sie sich
+                                Mit diesem Benutzernamen und Ihrem
+                                <?= $mitPasswort ? 'Portalpasswort' : 'Mitarbeiter-Passwort' ?> melden Sie sich
                                 k&uuml;nftig am Portal an. Gro&szlig;- und Kleinschreibung spielt
                                 keine Rolle.
                             </div>

@@ -2,14 +2,16 @@
 /**
  * standard/Controllers/RegistrierungController.php
  *
- * Selbstregistrierung in der Tabelle REGISTRIERUNG -- fuer beide Portale:
+ * Selbstregistrierung in der Tabelle REGISTRIERUNG -- fuer alle Portale:
  *
  *   Kundenportal        /kunde/registrieren        typ = 'kunde'
  *                                                  oeffentlich, jeder darf
  *   Mitarbeiterportal   /mitarbeiter/registrieren  typ = 'mitarbeiter'
  *                                                  nur wer in USERS existiert
+ *   Fahrerportal        /fahrer/registrieren       typ = 'fahrer'
+ *                                                  nur wer im PERSONALSTAMM steht
  *
- * Beide Varianten laufen durch dieselbe Verarbeitung (verarbeite()) und
+ * Alle Varianten laufen durch dieselbe Verarbeitung (verarbeite()) und
  * denselben View -- Unterschiede stehen ausschliesslich in der Konstante
  * PORTALE. Zwei getrennte Formulare wuerden mit der Zeit auseinanderdriften.
  *
@@ -23,7 +25,7 @@
  * DataModulRegistrierungClass.pas, insertRegistrierungLocal):
  *
  *   POST /registrierung/insertregistrierunglocal
- *     REGISTRIERUNG: username, pwd2, typ, email, usersloginname
+ *     REGISTRIERUNG: username, pwd2, typ, email, usersloginname, personalzeichen
  *     ADRESSEN:     anrede, name1, name2, strasse, plz, ort, telefon1, email
  *     dazu:          kennziffer (Zuordnung zu bestehender Adresse)
  *     Ignoriert:     titel, gruppe (ADRESSEN.gruppe ist immer 1)
@@ -101,6 +103,15 @@
  *   E-Mail-Adresse fuer REGISTRIERUNG.email) -- kein eigenes Portalpasswort,
  *   keine Wiederholung. Angemeldet wird mit Benutzername + USERS-Passwort.
  *
+ * Fahrer-Registrierung -- Identitaetsnachweis ueber den PERSONALSTAMM:
+ *   PHP prueft hier nichts gegen den Bestand. Der Endpunkt gleicht das
+ *   Kurzzeichen des Personalstamms (personalzeichen) zusammen mit name1 und
+ *   name2 gegen PERSONALSTAMM.zeichen/name1/name2 ab und laesst je Kurzzeichen
+ *   nur EINEN Portalzugang zu (HTTP 409). Der Benutzername ist frei waehlbar
+ *   und landet in REGISTRIERUNG.username, das Kurzzeichen grossgeschrieben in
+ *   REGISTRIERUNG.personalzeichen. Angemeldet wird mit Benutzername + eigenem
+ *   Portalpasswort.
+ *
  * Das Passwort wird NIE im Klartext an RATIOserver gesendet -- es wird per
  * password_hash() (Bcrypt) gehasht und ausschliesslich der Hash in PWD2
  * gespeichert (Vorgabe des Entwicklers).
@@ -162,6 +173,8 @@ class RegistrierungController extends BaseController
      * Grenzen aus den Zielspalten (CLAUDE.md, Abschnitt Feldlaengen):
      *   loginname, login_password  USERS (ftstring 20) -- laenger kann ein
      *                              hinterlegter Wert gar nicht sein
+     *   personalzeichen 15         PERSONALSTAMM.zeichen bzw.
+     *                              REGISTRIERUNG.personalzeichen
      *   kennziffer                 ADRESSEN.kennziffer (ftinteger)
      *   name1, name2, strasse, ort ADRESSEN bzw. PERSONALSTAMM, je 30
      *   plz 15, telefon1 25        ADRESSEN
@@ -176,6 +189,7 @@ class RegistrierungController extends BaseController
     public const FELDER = [
         'loginname'      => ['bezeichnung' => 'Ratio-Loginname', 'pflicht' => true, 'max_zeichen' => 20],
         'login_password' => ['bezeichnung' => 'Passwort', 'pflicht' => true, 'max_zeichen' => 20, 'geheim' => true],
+        'personalzeichen' => ['bezeichnung' => 'Kurzzeichen des Personalstamms', 'pflicht' => true, 'max_zeichen' => 15, 'gross' => true],
         'kennziffer'     => ['bezeichnung' => 'Kundennummer', 'ganzzahl' => [1, 2147483647], 'max_zeichen' => 10],
         'anrede'         => ['bezeichnung' => 'Anrede', 'pflicht' => true, 'auswahl' => self::ANREDEN],
         'name1'          => ['bezeichnung' => 'Vorname', 'pflicht' => true, 'max_zeichen' => 30],
@@ -196,6 +210,7 @@ class RegistrierungController extends BaseController
      */
     private const FELDGRUPPEN = [
         'userspruefung'    => ['loginname', 'login_password'],
+        'personalstamm'    => ['personalzeichen'],
         'adressdaten'      => ['kennziffer', 'anrede', 'strasse', 'plz', 'ort', 'telefon1'],
         'namensfelder'     => ['name1', 'name2'],
         'eigenes_passwort' => ['password', 'password_wdh'],
@@ -218,7 +233,10 @@ class RegistrierungController extends BaseController
      * Die Schalter im Einzelnen:
      *   userspruefung    Identitaetsnachweis in PHP gegen USERS
      *                    (pruefeMitarbeiter). Nur das Mitarbeiterportal.
-     *   adressdaten      Anrede, Anschrift, Telefon und Kundennummer abfragen.
+     *   personalstamm    Kurzzeichen des Personalstamms abfragen und als
+     *                    personalzeichen senden -- der Endpunkt gleicht es mit
+     *                    name1/name2 gegen den PERSONALSTAMM ab. Nur typ=fahrer.
+     *   adressdaten     Anrede, Anschrift, Telefon und Kundennummer abfragen.
      *                    Nur typ=kunde -- nur dort legt der Endpunkt eine
      *                    Adresse an, bei jedem anderen typ verwirft er sie.
      *   namensfelder     name1 (Vorname) und name2 (Nachname) abfragen.
@@ -235,9 +253,7 @@ class RegistrierungController extends BaseController
      *   username_aus     Woraus REGISTRIERUNG.username entsteht:
      *                    'email'     -- eingegebene E-Mail-Adresse (Kunde)
      *                    'eingabe'   -- frei gewaehlter Benutzername
-     *                                   (Mitarbeiter)
-     *                    'zeichen'   -- Personalstamm-Kuerzel (Fahrer),
-     *                                   wird grossgeschrieben gespeichert
+     *                                   (Mitarbeiter, Fahrer)
      *   erfolg           Erfolgsmeldung -- bei mitarbeiter/fahrer mit Hinweis auf
      *                    die Freischaltung (der Endpunkt legt sie gesperrt an)
      *   felder           Abweichungen von FELDER fuer diese Variante
@@ -257,6 +273,7 @@ class RegistrierungController extends BaseController
             'untertitel'       => 'Legen Sie ein neues Konto an.',
             'zurueck_text'     => 'Zurück zur Startseite',
             'userspruefung'    => false,
+            'personalstamm'    => false,
             'adressdaten'      => true,
             'namensfelder'     => true,
             'eigenes_passwort' => true,
@@ -273,6 +290,7 @@ class RegistrierungController extends BaseController
             'untertitel'       => 'Legen Sie Ihren Portalzugang an.',
             'zurueck_text'     => 'Zurück zum Mitarbeiterportal',
             'userspruefung'    => true,
+            'personalstamm'    => false,
             'adressdaten'      => false,
             'namensfelder'     => false,
             'eigenes_passwort' => false,
@@ -297,23 +315,25 @@ class RegistrierungController extends BaseController
             'untertitel'       => 'Legen Sie Ihren Portalzugang an.',
             'zurueck_text'     => 'Zurück zum Fahrerportal',
             // Kein USERS-Nachweis in PHP: den Abgleich macht der Endpunkt
-            // selbst gegen den PERSONALSTAMM (zeichen + name1 + name2).
+            // selbst gegen den PERSONALSTAMM (personalzeichen + name1 + name2).
             'userspruefung'    => false,
+            'personalstamm'    => true,
             'adressdaten'      => false,
             'namensfelder'     => true,
             'eigenes_passwort' => true,
             'email_optional'   => true,
-            // Bewusst aus: eine Live-Pruefung wuerde oeffentlich verraten,
-            // welche Fahrerkuerzel bereits einen Zugang haben.
+            // Bewusst aus: wie im Mitarbeiterportal keine oeffentliche
+            // Auskunft ueber vergebene Benutzernamen.
             'live_pruefung'    => false,
-            'username_aus'     => 'zeichen',
-            'dublette'         => 'Für dieses Fahrerkürzel ist bereits ein Portalzugang angelegt.',
+            // Der Fahrer waehlt einen eigenen Benutzernamen; das Kurzzeichen
+            // des Personalstamms geht nach REGISTRIERUNG.personalzeichen.
+            'username_aus'     => 'eingabe',
+            'dublette'         => 'Dieser Benutzername ist bereits vergeben.',
             'erfolg'           => self::ERFOLG_FREISCHALTUNG,
-            // Kuerzel aus PERSONALSTAMM.zeichen (ftstring 15), immer gross --
-            // der Endpunkt normalisiert ebenso, der Anmeldevergleich laeuft
-            // per UPPER(). name2 ist hier kein Firmenname.
+            // Grenze aus REGISTRIERUNG.username (ftstring 120). name2 ist hier
+            // kein Firmenname.
             'felder'           => [
-                'username' => ['bezeichnung' => 'Fahrerkürzel', 'email' => false, 'max_zeichen' => 15, 'gross' => true],
+                'username' => ['bezeichnung' => 'Benutzername', 'email' => false, 'max_zeichen' => 120],
                 'name2'    => ['bezeichnung' => 'Nachname'],
             ],
         ],
@@ -457,8 +477,8 @@ class RegistrierungController extends BaseController
         //   Kundenportal      -- die E-Mail-Adresse
         //   Mitarbeiterportal -- frei gewaehlt (der Ratio-Loginname geht nach
         //                        usersloginname, siehe unten)
-        //   Fahrerportal      -- das Personalstamm-Kuerzel, durch 'gross'
-        //                        bereits grossgeschrieben
+        //   Fahrerportal      -- frei gewaehlt (das Kurzzeichen des
+        //                        Personalstamms geht nach personalzeichen)
         $benutzername = $werte['username'];
 
         // --- Benutzername bereits vergeben? ---------------------------------
@@ -496,10 +516,18 @@ class RegistrierungController extends BaseController
             $daten['usersloginname'] = mb_strtoupper($werte['loginname']);
         }
 
+        // Kurzzeichen des Personalstamms, durch 'gross' bereits
+        // grossgeschrieben. Der Endpunkt gleicht es gegen PERSONALSTAMM.zeichen
+        // ab und lehnt ein Kurzzeichen ab, das bereits einen Portalzugang hat
+        // (HTTP 409).
+        if ($konfig['personalstamm']) {
+            $daten['personalzeichen'] = $werte['personalzeichen'];
+        }
+
         // name1/name2 gehen bei jeder Variante mit, die sie abfragt -- bei
         // typ=kunde als Adressdaten, bei typ=fahrer als Suchkriterium fuer den
-        // PERSONALSTAMM-Abgleich (zeichen + name1 + name2). Ohne sie lehnt der
-        // Endpunkt beide Varianten ab.
+        // PERSONALSTAMM-Abgleich (personalzeichen + name1 + name2). Ohne sie
+        // lehnt der Endpunkt beide Varianten ab.
         if ($konfig['namensfelder']) {
             $daten += [
                 'name1' => $werte['name1'],
@@ -788,7 +816,8 @@ class RegistrierungController extends BaseController
             'zurueck_link'         => Portal::start($konfig['portal']),
             'zurueck_text'         => $konfig['zurueck_text'],
             'mitarbeiter_pruefung' => $konfig['userspruefung'],
-            'adressdaten'          => $konfig['adressdaten'],
+            'personalstamm'        => $konfig['personalstamm'],
+            'adressdaten'         => $konfig['adressdaten'],
             'namensfelder'         => $konfig['namensfelder'],
             'eigenes_passwort'     => $konfig['eigenes_passwort'],
             'live_pruefung'        => $konfig['live_pruefung'],
