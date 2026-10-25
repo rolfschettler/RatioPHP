@@ -466,7 +466,7 @@ Benutzername und USERS-Loginname sind getrennt (seit 2026-10-25):
 
 | Formularfeld | Pflicht | Ziel | Grenze |
 |---|---|---|---|
-| Ratio-Loginname (`loginname`) | ja | Pruefung gegen `USERS.loginname`, gespeichert in `REGISTRIERUNG.usersloginname` | 20 |
+| Ratio-Loginname (`loginname`) | ja | Pruefung gegen `USERS.loginname`, gespeichert in `REGISTRIERUNG.usersloginname` -- immer GROSS (PHP `mb_strtoupper`, Endpunkt `ToUpperUni`) | 20 |
 | Passwort (`login_password`) | ja | Pruefung gegen `USERS.passwort`, gehasht in `pwd2` | 20 |
 | Benutzername (`username`) | ja | `REGISTRIERUNG.username` -- damit meldet er sich am Portal an | 120 |
 | E-Mail (`email`) | nein | `REGISTRIERUNG.email` | 60 |

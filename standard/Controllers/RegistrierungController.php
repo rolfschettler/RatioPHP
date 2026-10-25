@@ -488,10 +488,12 @@ class RegistrierungController extends BaseController
             'typ'      => $konfig['typ'],
         ];
 
-        // Verknuepfung zum oben geprueften USERS-Satz. Der Endpunkt lehnt einen
-        // Ratio-Loginnamen ab, der bereits einen Portalzugang hat (HTTP 409).
+        // Verknuepfung zum oben geprueften USERS-Satz, immer grossgeschrieben
+        // (der USERS-Abgleich ignoriert Gross-/Kleinschreibung). Der Endpunkt
+        // lehnt einen Ratio-Loginnamen ab, der bereits einen Portalzugang hat
+        // (HTTP 409).
         if ($konfig['userspruefung']) {
-            $daten['usersloginname'] = $werte['loginname'];
+            $daten['usersloginname'] = mb_strtoupper($werte['loginname']);
         }
 
         // name1/name2 gehen bei jeder Variante mit, die sie abfragt -- bei
