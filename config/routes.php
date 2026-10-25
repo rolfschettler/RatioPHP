@@ -90,10 +90,14 @@ $router->add('/fahrer', 'Standard\Controllers\HomeController', 'fahrer', ['auth'
 
 // Fahrer-Registrierung -- oeffentliche Route. Der Identitaetsnachweis passiert
 // nicht in PHP, sondern im Endpunkt selbst: insertregistrierunglocal gleicht
-// bei typ=fahrer username (= PERSONALSTAMM.zeichen), name1 und name2 gegen den
-// PERSONALSTAMM ab und lehnt Unbekannte ab.
+// bei typ=fahrer personalzeichen (= PERSONALSTAMM.zeichen), name1 und name2
+// gegen den PERSONALSTAMM ab und lehnt Unbekannte ab.
 $router->add('/fahrer/registrieren',          'Standard\Controllers\RegistrierungController', 'fahrer',          ['auth' => false]);
 $router->add('/fahrer/registrieren/absenden', 'Standard\Controllers\RegistrierungController', 'fahrerSpeichern', ['auth' => false]);
+
+// Meine Tour -- geschuetzt (Default auth: true). Eigene Einsaetze heute bzw.
+// 7 Tage (?zeitraum=woche) ueber /select; Kuerzel aus dem Token.
+$router->add('/fahrer/tour', 'Standard\Controllers\TourController', 'index');
 
 // ---------------------------------------------------------------------------
 // Portaluebergreifend

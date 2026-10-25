@@ -67,6 +67,33 @@ class Auth
     }
 
     /**
+     * Kurzzeichen des Personalstamms (PERSONALSTAMM.zeichen) des angemeldeten
+     * Fahrers -- der Wert, ueber den EINSATZ.fahrer1/2/3 ihm zugeordnet sind.
+     *
+     * Einzige zulaessige Quelle, wenn ein Controller die EIGENEN Einsaetze
+     * liest: ein Kuerzel aus dem Request waere frei waehlbar.
+     *
+     * Altbestand vor 2026-10-25 hat personalzeichen = NULL und das Kuerzel im
+     * username -- dort gilt username, aber nur bei typ = 'fahrer'.
+     *
+     * @return string|null null ohne Token oder ohne Kuerzel (z.B. Mitarbeiter)
+     */
+    public static function personalzeichen(): ?string
+    {
+        $rolle = self::rolleAusCookie();
+        if ($rolle === null) {
+            return null;
+        }
+
+        $zeichen = trim((string)($rolle['personalzeichen'] ?? ''));
+        if ($zeichen === '' && Portal::ausTyp((string)($rolle['typ'] ?? '')) === 'fahrer') {
+            $zeichen = trim((string)($rolle['username'] ?? ''));
+        }
+
+        return $zeichen === '' ? null : mb_strtoupper($zeichen);
+    }
+
+    /**
      * Portal eines beliebigen Tokens -- fuer den Moment direkt nach dem Login,
      * in dem das Cookie noch nicht gelesen werden kann (setcookie() wirkt erst
      * beim naechsten Request). Der AuthController leitet damit in das Portal

@@ -4,16 +4,25 @@
 // Nur direkt per URL /fahrer erreichbar.
 // Reiner Content-HTML -- kein DOCTYPE, kein Layout-Include.
 //
-// Noch ohne Fachmodule: sobald feststeht, welche Daten Fahrer sehen sollen,
-// kommen die Kacheln in den eingeloggten Zweig -- analog home/mitarbeiter.php.
+// Das Fahrerportal wird am Handy benutzt: Kacheln ueber die volle Breite,
+// kurze Texte. Kacheln ueber views/components/kachel.php -- ein weiteres
+// Modul bekommt hier eine Zeile ('href' => null zeigt "In Vorbereitung").
 
 use Core\Portal;
+use Core\View;
 
 $eingeloggt = !empty($_COOKIE['jwt_token']);
 $benutzer   = $_COOKIE['jwt_user'] ?? '';
 
-// Registrierungspfad aus core/Portal.php -- kein Portalpfad im View
+// Pfade aus core/Portal.php -- kein Portalpfad im View
+$modulBasis     = Portal::praefix($portal ?? 'fahrer');
 $registrierLink = Portal::registrierung($portal ?? 'fahrer');
+
+// Texte sind Klartext, die Komponente escaped.
+// Heute / 7 Tage waehlt der Fahrer im Modul selbst.
+$kacheln = [
+    ['icon' => 'bi-signpost-split', 'titel' => 'Meine Tour', 'text' => 'Ihre Einsätze für heute oder die nächsten 7 Tage.', 'href' => $modulBasis . '/tour'],
+];
 ?>
 <div class="px-3 py-5 py-lg-6">
     <div class="container">
@@ -34,12 +43,20 @@ $registrierLink = Portal::registrierung($portal ?? 'fahrer');
                 <?php if ($eingeloggt): ?>
 
                     <p class="lead text-muted mb-4">
-                        Sie sind als <strong style="color:var(--primary-color-dark);"><?= htmlspecialchars($benutzer) ?></strong>
-                        angemeldet. Hier stehen in K&uuml;rze Ihre Fahrerfunktionen bereit.
+                        Hallo <strong style="color:var(--primary-color-dark);"><?= htmlspecialchars($benutzer) ?></strong>.
                     </p>
+
+                    <div class="row g-3 text-start">
+                        <?php foreach ($kacheln as $kachel): ?>
+                        <div class="col-12">
+                            <?= View::komponente('kachel', $kachel) ?>
+                        </div>
+                        <?php endforeach; ?>
+                    </div>
+
                     <?php // portal=fahrer ist Pflicht -- ohne den Parameter landet
                           // der Logout im Kundenportal (Default aus Core\Portal). ?>
-                    <a href="<?= APP_BASE ?>/logout?portal=fahrer" class="btn btn-lg fw-semibold btn-app-primary">
+                    <a href="<?= APP_BASE ?>/logout?portal=fahrer" class="btn btn-outline-secondary w-100 mt-4">
                         <i class="bi bi-box-arrow-right me-1"></i>Abmelden
                     </a>
 
@@ -47,7 +64,7 @@ $registrierLink = Portal::registrierung($portal ?? 'fahrer');
 
                     <p class="lead text-muted mb-4">
                         Bereich f&uuml;r Fahrerinnen und Fahrer. Melden Sie sich mit Ihrem
-                        Fahrerk&uuml;rzel an.
+                        Benutzernamen an.
                     </p>
                     <button type="button" class="btn btn-lg fw-semibold btn-app-primary"
                             data-bs-toggle="modal" data-bs-target="#loginModal">

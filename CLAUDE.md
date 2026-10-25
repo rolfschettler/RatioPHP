@@ -253,6 +253,33 @@ Beim Anlegen eines neuen Moduls also **keinen Menuepunkt** in
   `'portal' => 'kunde'` und Einstieg in `standard/Views/home/index.php`.
 - In beiden Faellen: `views/components/header.php` bleibt unangetastet.
 
+### Fahrerportal -- Handy zuerst
+
+Das Fahrerportal wird praktisch nur am Handy geoeffnet. Fuer jede Fahrerseite:
+
+- Views fuer ~375 px Breite bauen: Inhalt in `max-width:640px` zentriert,
+  Karten und Schaltflaechen ueber die volle Breite, grosse Schrift fuer das
+  Wesentliche. Keine Tabellen, keine Toolbar-Zone (die ist am Handy
+  eingeklappt) -- Umschalter direkt im Content.
+- Meldungen und Hinweise in einfachen, kurzen Saetzen ("Heute haben Sie keine
+  Einsätze.") -- keine Fachbegriffe, keine technischen Details.
+- Startseite: nur Kacheln fuer vorhandene Module (`views/components/kachel.php`).
+
+**Meine Tour** (`/fahrer/tour`, `TourController`) zeigt die eigenen Einsaetze.
+Oben die KW, darunter eine Tagesleiste (heute + 6 Tage, Punkt = Einsaetze an
+dem Tag): `?tag=0..6` zeigt einen Tag (Default heute), `?zeitraum=woche` alle
+7 Tage. Geladen werden immer alle 7 Tage. Die Startseite hat dafuer EINE
+Kachel "Meine Tour" -- den Zeitraum waehlt der Fahrer im Modul.
+
+Datenquelle ist `/select` mit eigener Abfrage, NICHT
+`/dispo/geteinsatzfiltered`: der filtert nur nach Zeitraum -- ein Fahrer mit
+Rechten darauf bekaeme ueber die API die Einsaetze aller Fahrer. `/select` ist
+`LocalOnly` und von aussen nicht erreichbar. Das Kuerzel kommt ausschliesslich
+aus dem Token: `Core\Auth::personalzeichen()` (`role.personalzeichen`; bei
+Altbestand mit `typ='fahrer'` und leerem `personalzeichen` der `username`).
+Grundsatz fuer weitere Fahrermodule: eigene Abfragen ueber lokale Endpunkte,
+Identitaet nur aus dem Token.
+
 ---
 
 ## Routenkonventionen und Portalgrenzen
@@ -367,7 +394,7 @@ kopieren, sondern eine weitere Variante in `PORTALE` ergaenzen.
 |---|---|---|---|---|---|---|
 | Kundenportal | `/kunde/registrieren` | `kunde` | offen | E-Mail-Adresse | ADRESSEN wird angelegt bzw. verknuepft | eigenes Portalpasswort mit Wiederholung |
 | Mitarbeiterportal | `/mitarbeiter/registrieren` | `mitarbeiter` | nur mit Ratio-Loginname + Passwort aus USERS | frei gewaehlter Benutzername (USERS-Loginname -> `usersloginname`) | keine | das USERS-Passwort, keine Wiederholung |
-| Fahrerportal | `/fahrer/registrieren` | `fahrer` | nur wer mit Kuerzel + Vor- und Nachname im PERSONALSTAMM steht | Personalstamm-Kuerzel (`zeichen`), immer GROSS | keine | eigenes Portalpasswort mit Wiederholung |
+| Fahrerportal | `/fahrer/registrieren` | `fahrer` | nur wer mit Kurzzeichen + Vor- und Nachname im PERSONALSTAMM steht | frei gewaehlter Benutzername (Kurzzeichen des Personalstamms -> `personalzeichen`, immer GROSS) | keine | eigenes Portalpasswort mit Wiederholung |
 
 Das Mitarbeiterformular fragt Ratio-Loginname, Passwort und Benutzername ab, dazu freiwillig eine
 E-Mail-Adresse. Diese landet -- wie im Fahrerportal -- in `REGISTRIERUNG.email`
@@ -381,12 +408,13 @@ gekoppelt -- das Fahrerportal braucht Namensfelder OHNE Adresse:
 | Schalter | `kunde` | `mitarbeiter` | `fahrer` |
 |---|---|---|---|
 | `userspruefung` -- USERS-Nachweis in PHP | nein | ja | nein (der Endpunkt prueft selbst) |
+| `personalstamm` -- Kurzzeichen des Personalstamms nach `personalzeichen` | nein | nein | **ja** |
 | `adressdaten` -- Anrede, Anschrift, Telefon, Kundennummer | ja | nein | nein |
 | `namensfelder` -- `name1`, `name2` | ja | nein | **ja** |
 | `eigenes_passwort` -- Passwort + Wiederholung | ja | nein | ja |
 | `email_optional` -- freiwillige E-Mail nach `REGISTRIERUNG.email` | nein (Benutzername IST die E-Mail) | ja | ja |
 | `live_pruefung` -- Verfuegbarkeit waehrend der Eingabe | ja | nein | nein |
-| `username_aus` | `email` | `eingabe` | `zeichen` |
+| `username_aus` | `email` | `eingabe` | `eingabe` |
 
 ### typ ist Pflicht -- und steuert die Adressbehandlung
 
@@ -399,10 +427,12 @@ was der Endpunkt prueft und ob eine Adresse entsteht:
 
 - `typ='kunde'` -- REGISTRIERUNG und ADRESSEN in einer Transaktion. `anrede`,
   `name1`, `name2` sind Pflicht, `kennziffer` verknuepft eine bestehende Adresse.
-- `typ='fahrer'` -- `username`, `name1` (Vorname) und `name2` (Nachname) sind
-  Pflicht. `username` wird grossgeschrieben und muss zusammen mit den Namen einem
-  Satz im PERSONALSTAMM entsprechen (`username = zeichen`, `name1`, `name2`).
-  Ohne Treffer: "Benutzer ist nicht im Personalstamm vorhanden." KEINE Adresse.
+- `typ='fahrer'` -- `personalzeichen`, `name1` (Vorname), `name2` (Nachname)
+  und `username` sind Pflicht. `personalzeichen` wird grossgeschrieben und muss
+  zusammen mit den Namen einem Satz im PERSONALSTAMM entsprechen
+  (`personalzeichen = zeichen`, `name1`, `name2`). Ohne Treffer: "Benutzer ist
+  nicht im Personalstamm vorhanden." `username` ist frei gewaehlt und bleibt
+  unveraendert. KEINE Adresse.
 - `typ='mitarbeiter'` -- KEINE Adresse, keine weiteren Pflichtfelder.
 
 Bei `mitarbeiter` und `fahrer` bleibt `kennziffer` `NULL` und die Antwort lautet
@@ -433,11 +463,35 @@ Anders als beim Mitarbeiterportal prueft **PHP hier gar nichts** -- der
 Identitaetsnachweis passiert vollstaendig im Endpunkt. `userspruefung` ist
 deshalb `false`, es gibt keine zweite Passworteingabe und keinen `Codec`-Aufruf.
 
-Was PHP beisteuert: Kuerzel grossschreiben (`mb_strtoupper`), Laengen pruefen
-(`zeichen` ist `ftstring 15`, `name1`/`name2` je 30) und `name1`/`name2` in den
-Request legen.
+Was PHP beisteuert: Kurzzeichen grossschreiben (`gross` in FELDER), Laengen
+pruefen (`personalzeichen` 15, `name1`/`name2` je 30, `username` 120) und
+`personalzeichen`, `name1`, `name2` in den Request legen.
 
-Live verifiziert am 2026-08-27 gegen den laufenden RATIOserver:
+Benutzername und Kurzzeichen sind getrennt (seit 2026-10-25, analog zum
+Mitarbeiterportal):
+
+| Formularfeld | Pflicht | Ziel | Grenze |
+|---|---|---|---|
+| Kurzzeichen des Personalstamms (`personalzeichen`) | ja | Abgleich mit `PERSONALSTAMM.zeichen`, gespeichert in `REGISTRIERUNG.personalzeichen` -- immer GROSS (PHP `gross`, Endpunkt `ToUpperUni`) | 15 |
+| Vorname / Nachname (`name1`, `name2`) | ja | nur Abgleich mit dem PERSONALSTAMM | 30 |
+| Benutzername (`username`) | ja | `REGISTRIERUNG.username`, unveraendert -- damit meldet er sich an | 120 |
+| Passwort + Wiederholung | ja | gehasht in `pwd2` | 72 Bytes |
+| E-Mail (`email`) | nein | `REGISTRIERUNG.email` | 60 |
+
+Je Kurzzeichen gibt es hoechstens EINEN Portalzugang: `insertregistrierunglocal`
+lehnt ein bereits in `personalzeichen` eingetragenes Kurzzeichen mit HTTP 409 ab
+(„Für dieses Kurzzeichen des Personalstamms ist bereits ein Portalzugang
+angelegt."). Die Meldung kommt erst nach bestandenem PERSONALSTAMM-Abgleich.
+Delphi-Aenderung vom 2026-10-25 (`personalzeichen` in ALLOWED, Abgleich ueber
+`personalzeichen` statt `username`, Dublettensperre) -- wirksam erst nach
+Kompilieren und Deployment. **Anders als beim Mitarbeiterportal muss Delphi
+VOR dem PHP-Stand deployt sein:** der alte Endpunkt gleicht `username` gegen
+`zeichen` ab und lehnt jeden frei gewaehlten Benutzernamen als "nicht im
+Personalstamm" ab. Altbestand vor dieser Aenderung hat `personalzeichen = NULL`
+und `username = Kuerzel` -- er meldet sich weiter mit dem Kuerzel an, die
+Sperre greift dort nicht.
+
+Historisch -- live verifiziert am 2026-08-27, noch mit `username = Kuerzel`:
 
 | Eingabe | Ergebnis |
 |---|---|
@@ -447,8 +501,8 @@ Live verifiziert am 2026-08-27 gegen den laufenden RATIOserver:
 | Login mit `dan` (klein) | erfolgreich -- `/login` vergleicht per `UPPER()` |
 
 Die Live-Verfuegbarkeitspruefung ist im Fahrerportal bewusst **aus**
-(`live_pruefung => false`): sie wuerde oeffentlich verraten, welche Fahrerkuerzel
-bereits einen Zugang haben. Die Dublette meldet erst das abgesendete Formular --
+(`live_pruefung => false`): sie wuerde oeffentlich verraten, welche
+Benutzernamen bereits vergeben sind. Die Dublette meldet erst das abgesendete Formular --
 und das faellt unter das Rate-Limit.
 
 ### Mitarbeiter-Registrierung -- Nachweis ueber USERS
@@ -1781,6 +1835,7 @@ Abgefragt ueber den `header`-Block (`"fields":"*"`) bzw. `RDB$RELATION_FIELDS`:
 | REGISTRIERUNG | typ | 30 |
 | REGISTRIERUNG | email | 60 |
 | REGISTRIERUNG | usersloginname | 20 |
+| REGISTRIERUNG | personalzeichen | 15 |
 | USERS | loginname | 20 |
 | USERS | passwort | 20 |
 | PERSONALSTAMM | zeichen | 15 |
@@ -1802,7 +1857,8 @@ Alle Registrierungsgrenzen stehen in `RegistrierungController::FELDER`
 | `plz` | 15 | ADRESSEN | `max_zeichen` |
 | `telefon1` | 25 | ADRESSEN | `max_zeichen` |
 | `username` (Kunde) | 60 | ADRESSEN.email -- **nicht** REGISTRIERUNG.username (120), die E-Mail landet in beiden Feldern, die kleinere Grenze bindet | `max_zeichen`, `email` |
-| `username` (Fahrer) | 15 | PERSONALSTAMM.zeichen | `max_zeichen`, `gross` (Abweichung in PORTALE) |
+| `personalzeichen` (Kurzzeichen des Personalstamms) | 15 | PERSONALSTAMM.zeichen bzw. REGISTRIERUNG.personalzeichen | `max_zeichen`, `gross` |
+| `username` (Fahrer) | 120 | REGISTRIERUNG.username | `max_zeichen` (Abweichung in PORTALE) |
 | `loginname` (Ratio-Loginname) | 20 | USERS.loginname bzw. REGISTRIERUNG.usersloginname | `max_zeichen` -- geprueft in `pruefeMitarbeiter()` |
 | `username` (Mitarbeiter) | 120 | REGISTRIERUNG.username | `max_zeichen` (Abweichung in PORTALE) |
 | `login_password` | 20 | USERS.passwort | `max_zeichen` -- geprueft in `pruefeMitarbeiter()` |
