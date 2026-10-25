@@ -20,7 +20,7 @@ define('VIEW_PATH', ROOT_PATH . '/views');
 define('APP_NAME', 'RATIOonline');
 
 // Entwicklung: true -- Produktion: false
-define('DEBUG', true);
+define('DEBUG', false);
 
 // Rate-Limiting der Registrierung. Zum Testen auf false setzen -- dann zaehlt
 // kein Versuch und keine Grenze greift.
