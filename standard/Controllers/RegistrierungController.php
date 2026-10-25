@@ -23,8 +23,8 @@
  * DataModulRegistrierungClass.pas, insertRegistrierungLocal):
  *
  *   POST /registrierung/insertregistrierunglocal
- *     REGISTRIERUNG: username, pwd2, typ
- *     ADRESSEN:      anrede, name1, name2, strasse, plz, ort, telefon1, email
+ *     REGISTRIERUNG: username, pwd2, typ, email, usersloginname
+ *     ADRESSEN:     anrede, name1, name2, strasse, plz, ort, telefon1, email
  *     dazu:          kennziffer (Zuordnung zu bestehender Adresse)
  *     Ignoriert:     titel, gruppe (ADRESSEN.gruppe ist immer 1)
  *     Erfolg: {"status":"OK","nr":..,"kennziffer":..,"adresse":".."}
@@ -92,12 +92,14 @@
  *   Abbruch mit technischer Meldung, kein Insert.
  *
  *   Das gepruefte USERS-Passwort ist gleichzeitig das Portalpasswort: es wird
- *   gehasht in REGISTRIERUNG.pwd2 abgelegt. Als REGISTRIERUNG.username dient
- *   der USERS-Loginname. Das Mitarbeiterformular fragt deshalb NUR Loginname
- *   und Passwort ab (dazu freiwillig eine E-Mail-Adresse fuer
- *   REGISTRIERUNG.email) -- kein eigenes Portalpasswort, keine Wiederholung.
- *   Der Mitarbeiter meldet sich am Portal also mit denselben Zugangsdaten an,
- *   die er ohnehin kennt.
+ *   gehasht in REGISTRIERUNG.pwd2 abgelegt. Der Benutzername ist dagegen frei
+ *   waehlbar und landet in REGISTRIERUNG.username; der gepruefte
+ *   USERS-Loginname ("Ratio-Loginname") wird als Verknuepfung in
+ *   REGISTRIERUNG.usersloginname gespeichert. Der Endpunkt laesst je
+ *   USERS-Loginname nur EINEN Portalzugang zu. Das Mitarbeiterformular fragt
+ *   Ratio-Loginname, Passwort und Benutzername ab (dazu freiwillig eine
+ *   E-Mail-Adresse fuer REGISTRIERUNG.email) -- kein eigenes Portalpasswort,
+ *   keine Wiederholung. Angemeldet wird mit Benutzername + USERS-Passwort.
  *
  * Das Passwort wird NIE im Klartext an RATIOserver gesendet -- es wird per
  * password_hash() (Bcrypt) gehasht und ausschliesslich der Hash in PWD2
@@ -172,7 +174,7 @@ class RegistrierungController extends BaseController
      *                              Zielspalte pwd2 (255) nimmt nur den Hash auf.
      */
     public const FELDER = [
-        'loginname'      => ['bezeichnung' => 'Loginname', 'pflicht' => true, 'max_zeichen' => 20],
+        'loginname'      => ['bezeichnung' => 'Ratio-Loginname', 'pflicht' => true, 'max_zeichen' => 20],
         'login_password' => ['bezeichnung' => 'Passwort', 'pflicht' => true, 'max_zeichen' => 20, 'geheim' => true],
         'kennziffer'     => ['bezeichnung' => 'Kundennummer', 'ganzzahl' => [1, 2147483647], 'max_zeichen' => 10],
         'anrede'         => ['bezeichnung' => 'Anrede', 'pflicht' => true, 'auswahl' => self::ANREDEN],
@@ -189,8 +191,8 @@ class RegistrierungController extends BaseController
     ];
 
     /**
-     * Welche Felder ein Schalter in PORTALE einschaltet. username kommt dazu,
-     * wenn username_aus nicht 'loginname' ist.
+     * Welche Felder ein Schalter in PORTALE einschaltet. username kommt bei
+     * jeder Variante dazu.
      */
     private const FELDGRUPPEN = [
         'userspruefung'    => ['loginname', 'login_password'],
@@ -232,7 +234,8 @@ class RegistrierungController extends BaseController
      *                    Eingabe per fetch pruefen.
      *   username_aus     Woraus REGISTRIERUNG.username entsteht:
      *                    'email'     -- eingegebene E-Mail-Adresse (Kunde)
-     *                    'loginname' -- USERS-Loginname (Mitarbeiter)
+     *                    'eingabe'   -- frei gewaehlter Benutzername
+     *                                   (Mitarbeiter)
      *                    'zeichen'   -- Personalstamm-Kuerzel (Fahrer),
      *                                   wird grossgeschrieben gespeichert
      *   erfolg           Erfolgsmeldung -- bei mitarbeiter/fahrer mit Hinweis auf
@@ -275,12 +278,17 @@ class RegistrierungController extends BaseController
             'eigenes_passwort' => false,
             'email_optional'   => true,
             'live_pruefung'    => false,
-            // Der Mitarbeiter meldet sich am Portal mit seinem USERS-Loginnamen
-            // an. Eine E-Mail-Adresse kann er freiwillig angeben -- sie landet
-            // in REGISTRIERUNG.email, eine Adresse entsteht nicht.
-            'username_aus'     => 'loginname',
-            'dublette'         => 'Für diesen Loginnamen ist bereits ein Portalzugang angelegt.',
+            // Der Mitarbeiter waehlt einen eigenen Benutzernamen; der gepruefte
+            // Ratio-Loginname geht nach REGISTRIERUNG.usersloginname. Eine
+            // E-Mail-Adresse kann er freiwillig angeben -- sie landet in
+            // REGISTRIERUNG.email, eine Adresse entsteht nicht.
+            'username_aus'     => 'eingabe',
+            'dublette'         => 'Dieser Benutzername ist bereits vergeben.',
             'erfolg'           => self::ERFOLG_FREISCHALTUNG,
+            // Grenze aus REGISTRIERUNG.username (ftstring 120)
+            'felder'           => [
+                'username' => ['bezeichnung' => 'Benutzername', 'email' => false, 'max_zeichen' => 120],
+            ],
         ],
         'fahrer' => [
             'portal'           => 'fahrer',
@@ -447,10 +455,11 @@ class RegistrierungController extends BaseController
 
         // Benutzername der Registrierung:
         //   Kundenportal      -- die E-Mail-Adresse
-        //   Mitarbeiterportal -- der oben gepruefte USERS-Loginname
+        //   Mitarbeiterportal -- frei gewaehlt (der Ratio-Loginname geht nach
+        //                        usersloginname, siehe unten)
         //   Fahrerportal      -- das Personalstamm-Kuerzel, durch 'gross'
         //                        bereits grossgeschrieben
-        $benutzername = $werte[$konfig['username_aus'] === 'loginname' ? 'loginname' : 'username'];
+        $benutzername = $werte['username'];
 
         // --- Benutzername bereits vergeben? ---------------------------------
         // Vorabpruefung fuer eine verstaendliche Meldung. Der Insert prueft
@@ -478,6 +487,12 @@ class RegistrierungController extends BaseController
             'pwd2'     => password_hash($klartextPasswort, PASSWORD_DEFAULT),
             'typ'      => $konfig['typ'],
         ];
+
+        // Verknuepfung zum oben geprueften USERS-Satz. Der Endpunkt lehnt einen
+        // Ratio-Loginnamen ab, der bereits einen Portalzugang hat (HTTP 409).
+        if ($konfig['userspruefung']) {
+            $daten['usersloginname'] = $werte['loginname'];
+        }
 
         // name1/name2 gehen bei jeder Variante mit, die sie abfragt -- bei
         // typ=kunde als Adressdaten, bei typ=fahrer als Suchkriterium fuer den
@@ -568,13 +583,17 @@ class RegistrierungController extends BaseController
      */
     private function pruefeMitarbeiter(string $loginname, string $passwort, string $ip): ?string
     {
-        if ($loginname === '' || mb_strlen($loginname) > self::FELDER['loginname']['max_zeichen']) {
+        // Leere Pflichtfelder: eigene, verstaendliche Meldung -- und zwar VOR
+        // den Zaehlern und dem Endpunktaufruf. Sie verraet nichts ueber das
+        // Konto, und ein versehentlich leeres Feld verbraucht keinen Versuch.
+        if ($loginname === '') {
+            return 'Bitte geben Sie Ihren Ratio-Loginnamen ein.';
+        }
+
+        if (mb_strlen($loginname) > self::FELDER['loginname']['max_zeichen']) {
             return self::FEHLER_MITARBEITER;
         }
 
-        // Leeres Passwort: eigene, verstaendliche Meldung -- und zwar VOR den
-        // Zaehlern und dem Endpunktaufruf. Sie verraet nichts ueber das Konto,
-        // und ein versehentlich leeres Feld verbraucht keinen Versuch.
         if ($passwort === '') {
             return 'Bitte geben Sie Ihr Mitarbeiter-Passwort ein.';
         }
@@ -721,7 +740,7 @@ class RegistrierungController extends BaseController
     {
         $konfig = self::PORTALE[$variante];
 
-        $aktiv = $konfig['username_aus'] === 'loginname' ? [] : ['username'];
+        $aktiv = ['username'];
         foreach (self::FELDGRUPPEN as $schalter => $gruppe) {
             if ($konfig[$schalter]) {
                 $aktiv = array_merge($aktiv, $gruppe);

@@ -17,8 +17,8 @@
 //   $namensfelder         true -> Vorname und Nachname abfragen.
 //   $eigenes_passwort     true -> Passwort + Wiederholung abfragen.
 //   $username_aus         'email'     -> E-Mail-Feld (Kunde)
-//                         'loginname' -> kein eigenes Feld, kommt aus dem
-//                                        USERS-Block (Mitarbeiter)
+//                         'eingabe'   -> frei gewaehlter Benutzername
+//                                        (Mitarbeiter)
 //                         'zeichen'   -> Fahrerkuerzel (Fahrer)
 //   $live_pruefung        true -> Verfuegbarkeit waehrend der Eingabe pruefen.
 //   $email_optional       true -> freiwillige E-Mail-Adresse (Mitarbeiter,
@@ -50,10 +50,11 @@ $livePruefung    = $live_pruefung   ?? true;
 $usernameAus     = $username_aus    ?? 'email';
 $mitEmail        = ($usernameAus === 'email');
 $mitZeichen      = ($usernameAus === 'zeichen');
+$mitBenutzername = ($usernameAus === 'eingabe');
 // Zugangsdaten-Block: ueberall wo ein eigenes Loginfeld oder ein eigenes
-// Passwort abgefragt wird. Im Mitarbeiterportal entfaellt er -- dort stehen
-// beide Angaben schon im USERS-Block.
-$mitZugangsblock = ($mitEmail || $mitZeichen || $mitPasswort);
+// Passwort abgefragt wird. Im Mitarbeiterportal steht dort nur der
+// Benutzername -- das Passwort kommt aus dem USERS-Block.
+$mitZugangsblock = ($mitEmail || $mitZeichen || $mitBenutzername || $mitPasswort);
 $mitKontakt      = !empty($email_optional);
 
 /** Gibt einen Eingabewert HTML-sicher zurueck. */
@@ -119,8 +120,8 @@ $attr = static fn(string $feld): string => Pruefung::htmlAttribute($felder, $fel
                         <div class="col-12">
                             <div class="form-text">
                                 Nur wer im System bereits als Mitarbeiter angelegt ist, kann sich hier
-                                registrieren. Mit genau diesen Zugangsdaten melden Sie sich anschlie&szlig;end
-                                am Portal an &ndash; diese Eingabe meldet Sie aber noch nicht an.
+                                registrieren. Das Passwort ist anschlie&szlig;end auch Ihr Portalpasswort
+                                &ndash; diese Eingabe meldet Sie aber noch nicht an.
                             </div>
                         </div>
                     </div>
@@ -254,6 +255,18 @@ $attr = static fn(string $feld): string => Pruefung::htmlAttribute($felder, $fel
                                    autocomplete="username" autocapitalize="characters" spellcheck="false">
                             <div class="form-text">
                                 Ihr K&uuml;rzel aus dem Personalstamm &ndash; damit melden Sie sich
+                                k&uuml;nftig am Portal an. Gro&szlig;- und Kleinschreibung spielt
+                                keine Rolle.
+                            </div>
+                        </div>
+                        <?php elseif ($mitBenutzername): ?>
+                        <div class="col-12">
+                            <?= $label('username', 'regUsername') ?>
+                            <input type="text" class="form-control" id="regUsername" name="username"
+                                   value="<?= $wert('username') ?>"<?= $attr('username') ?>
+                                   autocomplete="username" spellcheck="false">
+                            <div class="form-text">
+                                Mit diesem Benutzernamen und Ihrem Mitarbeiter-Passwort melden Sie sich
                                 k&uuml;nftig am Portal an. Gro&szlig;- und Kleinschreibung spielt
                                 keine Rolle.
                             </div>

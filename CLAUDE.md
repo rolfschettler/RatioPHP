@@ -366,10 +366,10 @@ kopieren, sondern eine weitere Variante in `PORTALE` ergaenzen.
 | Portal | Route | `typ` | Zugang | `username` | Adresse | Passwort |
 |---|---|---|---|---|---|---|
 | Kundenportal | `/kunde/registrieren` | `kunde` | offen | E-Mail-Adresse | ADRESSEN wird angelegt bzw. verknuepft | eigenes Portalpasswort mit Wiederholung |
-| Mitarbeiterportal | `/mitarbeiter/registrieren` | `mitarbeiter` | nur mit Loginname + Passwort aus USERS | USERS-Loginname | keine | das USERS-Passwort, keine Wiederholung |
+| Mitarbeiterportal | `/mitarbeiter/registrieren` | `mitarbeiter` | nur mit Ratio-Loginname + Passwort aus USERS | frei gewaehlter Benutzername (USERS-Loginname -> `usersloginname`) | keine | das USERS-Passwort, keine Wiederholung |
 | Fahrerportal | `/fahrer/registrieren` | `fahrer` | nur wer mit Kuerzel + Vor- und Nachname im PERSONALSTAMM steht | Personalstamm-Kuerzel (`zeichen`), immer GROSS | keine | eigenes Portalpasswort mit Wiederholung |
 
-Das Mitarbeiterformular fragt Loginname und Passwort ab, dazu freiwillig eine
+Das Mitarbeiterformular fragt Ratio-Loginname, Passwort und Benutzername ab, dazu freiwillig eine
 E-Mail-Adresse. Diese landet -- wie im Fahrerportal -- in `REGISTRIERUNG.email`
 (60 Zeichen); `insertregistrierunglocal` nimmt `email` bei jedem `typ` fuer
 REGISTRIERUNG an, eine Adresse entsteht dadurch nicht. Grundsatz: **kein Formular
@@ -386,7 +386,7 @@ gekoppelt -- das Fahrerportal braucht Namensfelder OHNE Adresse:
 | `eigenes_passwort` -- Passwort + Wiederholung | ja | nein | ja |
 | `email_optional` -- freiwillige E-Mail nach `REGISTRIERUNG.email` | nein (Benutzername IST die E-Mail) | ja | ja |
 | `live_pruefung` -- Verfuegbarkeit waehrend der Eingabe | ja | nein | nein |
-| `username_aus` | `email` | `loginname` | `zeichen` |
+| `username_aus` | `email` | `eingabe` | `zeichen` |
 
 ### typ ist Pflicht -- und steuert die Adressbehandlung
 
@@ -458,12 +458,28 @@ sondern in `pruefeMitarbeiter()`: registrieren darf sich nur, wer in USERS mit
 Loginname und Passwort existiert. `USERS.passwort` liegt codiert vor und wird mit
 `Core\Codec::decodieren()` entschluesselt.
 
-Die geprueften USERS-Zugangsdaten sind gleichzeitig die Portal-Zugangsdaten: der
-Loginname wird als `REGISTRIERUNG.username` gespeichert, das Passwort gehasht
-(`password_hash`) als `REGISTRIERUNG.pwd2`. Deshalb hat das Mitarbeiterformular
-KEIN eigenes Passwortfeld und keine Wiederholung -- der
-Mitarbeiter meldet sich am Portal mit genau denselben Daten an, die er ohnehin kennt.
-Die E-Mail-Adresse ist freiwillig und landet in `REGISTRIERUNG.email`.
+Das gepruefte USERS-Passwort ist gleichzeitig das Portalpasswort und wird gehasht
+(`password_hash`) als `REGISTRIERUNG.pwd2` gespeichert. Deshalb hat das
+Mitarbeiterformular KEIN eigenes Passwortfeld und keine Wiederholung.
+
+Benutzername und USERS-Loginname sind getrennt (seit 2026-10-25):
+
+| Formularfeld | Pflicht | Ziel | Grenze |
+|---|---|---|---|
+| Ratio-Loginname (`loginname`) | ja | Pruefung gegen `USERS.loginname`, gespeichert in `REGISTRIERUNG.usersloginname` | 20 |
+| Passwort (`login_password`) | ja | Pruefung gegen `USERS.passwort`, gehasht in `pwd2` | 20 |
+| Benutzername (`username`) | ja | `REGISTRIERUNG.username` -- damit meldet er sich am Portal an | 120 |
+| E-Mail (`email`) | nein | `REGISTRIERUNG.email` | 60 |
+
+Angemeldet wird also mit **Benutzername + USERS-Passwort**. Je USERS-Loginname
+gibt es hoechstens EINEN Portalzugang: `insertregistrierunglocal` lehnt einen
+bereits in `usersloginname` eingetragenen Wert mit HTTP 409 ab („Für diesen
+Ratio-Loginnamen ist bereits ein Portalzugang angelegt."). Die Meldung kommt erst
+nach bestandenem USERS-Passwortnachweis und verraet daher nichts. Delphi-Aenderung
+vom 2026-10-25 (`usersloginname` in ALLOWED plus Dublettensperre) -- wirksam erst
+nach Kompilieren und Deployment; vorher ignoriert der Endpunkt das Feld still.
+Altbestand vor dieser Aenderung hat `usersloginname = NULL` und
+`username = USERS-Loginname` -- dort greift die Sperre nicht.
 
 Gegengeprueft: `/login` verifiziert `REGISTRIERUNG.pwd2` per `password_verify` und
 akzeptiert einen von PHP geschriebenen `password_hash` -- die Kette funktioniert.
@@ -473,8 +489,9 @@ Regeln dabei:
 - Jeder Fehlschlag -- unbekannter Loginname, falsches Passwort, gesperrtes Konto --
   ergibt DIESELBE Meldung („Der gewünschte Mitarbeiter ist im System nicht
   angelegt"). Unterschiedliche Meldungen wuerden verraten, welche Loginnamen
-  existieren. Ausnahme: ein leeres Passwortfeld bekommt einen eigenen Hinweis --
-  das verraet nichts ueber das Konto und wird vor den Zaehlern geprueft.
+  existieren. Ausnahme: ein leerer Ratio-Loginname bzw. ein leeres Passwortfeld
+  bekommt einen eigenen Hinweis -- das verraet nichts ueber das Konto und wird
+  vor den Zaehlern geprueft.
 - Fail-closed: nur ein tatsaechlich passendes Passwort laesst weiterlaufen. Fehlt die
   Route oder ist die Antwort unlesbar, wird abgebrochen -- niemals durchgelassen.
 - Die USERS-Eingabe ist KEINE Anmeldung: es wird kein `jwt_token`-Cookie gesetzt.
@@ -1763,6 +1780,7 @@ Abgefragt ueber den `header`-Block (`"fields":"*"`) bzw. `RDB$RELATION_FIELDS`:
 | REGISTRIERUNG | pwd2 | 255 |
 | REGISTRIERUNG | typ | 30 |
 | REGISTRIERUNG | email | 60 |
+| REGISTRIERUNG | usersloginname | 20 |
 | USERS | loginname | 20 |
 | USERS | passwort | 20 |
 | PERSONALSTAMM | zeichen | 15 |
@@ -1785,7 +1803,8 @@ Alle Registrierungsgrenzen stehen in `RegistrierungController::FELDER`
 | `telefon1` | 25 | ADRESSEN | `max_zeichen` |
 | `username` (Kunde) | 60 | ADRESSEN.email -- **nicht** REGISTRIERUNG.username (120), die E-Mail landet in beiden Feldern, die kleinere Grenze bindet | `max_zeichen`, `email` |
 | `username` (Fahrer) | 15 | PERSONALSTAMM.zeichen | `max_zeichen`, `gross` (Abweichung in PORTALE) |
-| `loginname` | 20 | USERS.loginname | `max_zeichen` -- geprueft in `pruefeMitarbeiter()` |
+| `loginname` (Ratio-Loginname) | 20 | USERS.loginname bzw. REGISTRIERUNG.usersloginname | `max_zeichen` -- geprueft in `pruefeMitarbeiter()` |
+| `username` (Mitarbeiter) | 120 | REGISTRIERUNG.username | `max_zeichen` (Abweichung in PORTALE) |
 | `login_password` | 20 | USERS.passwort | `max_zeichen` -- geprueft in `pruefeMitarbeiter()` |
 | `password`, `password_wdh` | 72 Bytes | Bcrypt | `min_bytes`, `max_bytes`, `gleich` |
 | `kennziffer` | 10 Ziffern | ADRESSEN.kennziffer (ftinteger) | `ganzzahl`, `max_zeichen` |
