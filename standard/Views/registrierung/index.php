@@ -121,7 +121,8 @@ $attr = static fn(string $feld): string => Pruefung::htmlAttribute($felder, $fel
                             <div class="form-text">
                                 Nur wer im System bereits als Mitarbeiter angelegt ist, kann sich hier
                                 registrieren. Das Passwort ist anschlie&szlig;end auch Ihr Portalpasswort
-                                &ndash; diese Eingabe meldet Sie aber noch nicht an.
+                                &ndash; diese Eingabe meldet Sie aber noch nicht an. Ihr Zugang muss nach
+                                der Registrierung erst noch freigeschaltet werden.
                             </div>
                         </div>
                     </div>
